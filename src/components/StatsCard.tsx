@@ -19,7 +19,7 @@ interface StatsCardProps {
 const StatsCard = ({
   title,
   value,
-  color = "bg-blue-500",
+  color = "bg-blue-300",
   icon,
   onClick,
 }: StatsCardProps) => {
@@ -28,16 +28,16 @@ const StatsCard = ({
   return (
     <motion.div
       whileHover={{ scale: 1.03 }}
-      className={`p-6 rounded-2xl shadow-md text-white flex flex-col justify-between ${
+      className={`p-3 rounded-2xl shadow-md text-white flex flex-col justify-between ${
         onClick ? "cursor-pointer" : ""
       } ${color}`}
       onClick={onClick} // ✅ attach onClick if provided
     >
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-semibold">{title}</h2>
         {IconComponent && <IconComponent className="w-6 h-6 opacity-80" />}
       </div>
-      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-2xl font-bold">{value}</div>
     </motion.div>
   );
 };

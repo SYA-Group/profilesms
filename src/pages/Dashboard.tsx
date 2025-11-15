@@ -283,6 +283,82 @@ const Dashboard = () => {
             )}
           </div>
         )}
+                {/* Pagination Controls */}
+                {!loading && stats && stats.recent_messages.length > PAGE_SIZE && (
+          <div className="flex justify-center items-center gap-4 mt-4 mb-4 text-gray-700 dark:text-gray-300">
+            <button
+              disabled={page === 1}
+              onClick={() => {
+                const prevPage = Math.max(1, page - 1);
+                const filtered = stats.recent_messages.filter(
+                  (msg) =>
+                    filterStatus === "all" ||
+                    msg.status.toLowerCase() === filterStatus
+                );
+                const start = (prevPage - 1) * PAGE_SIZE;
+                setVisibleMessages(filtered.slice(start, start + PAGE_SIZE));
+                setPage(prevPage);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm sm:text-base font-medium shadow-sm transition ${
+                page === 1
+                  ? "bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
+            >
+              ← Previous
+            </button>
+
+            <span className="font-semibold text-sm sm:text-base">
+              Page {page} of{" "}
+              {Math.ceil(
+                (stats.recent_messages.filter(
+                  (msg) =>
+                    filterStatus === "all" ||
+                    msg.status.toLowerCase() === filterStatus
+                ).length || 1) / PAGE_SIZE
+              )}
+            </span>
+
+            <button
+              disabled={
+                page >=
+                Math.ceil(
+                  (stats.recent_messages.filter(
+                    (msg) =>
+                      filterStatus === "all" ||
+                      msg.status.toLowerCase() === filterStatus
+                  ).length || 1) / PAGE_SIZE
+                )
+              }
+              onClick={() => {
+                const nextPage = page + 1;
+                const filtered = stats.recent_messages.filter(
+                  (msg) =>
+                    filterStatus === "all" ||
+                    msg.status.toLowerCase() === filterStatus
+                );
+                const start = (nextPage - 1) * PAGE_SIZE;
+                setVisibleMessages(filtered.slice(start, start + PAGE_SIZE));
+                setPage(nextPage);
+              }}
+              className={`px-4 py-2 rounded-lg text-sm sm:text-base font-medium shadow-sm transition ${
+                page >=
+                Math.ceil(
+                  (stats.recent_messages.filter(
+                    (msg) =>
+                      filterStatus === "all" ||
+                      msg.status.toLowerCase() === filterStatus
+                  ).length || 1) / PAGE_SIZE
+                )
+                  ? "bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
+            >
+              Next →
+            </button>
+          </div>
+        )}
+
       </motion.div>
     </div>
   );

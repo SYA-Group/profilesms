@@ -22,7 +22,7 @@
 @layer base {
   html {
     font-family: "Inter", "Segoe UI", Roboto, sans-serif;
-    font-size: 20px;
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -63,7 +63,7 @@
   }
 
   th {
-    font-weight: 600;
+    font-weight: 400;
   }
 
   /* Fix sticky headers & prevent double borders */

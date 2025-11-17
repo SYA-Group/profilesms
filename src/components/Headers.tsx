@@ -1,8 +1,8 @@
-import { Moon, Sun, Menu, User } from "lucide-react";
+import { Moon, Sun, Menu, User, Bell, Globe } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { getUserInfo } from "../api";
-import { useTheme } from "../context/ThemeContext"; // ✅ import global theme hook
+import { useTheme } from "../context/ThemeContext";
 import "modern-normalize/modern-normalize.css";
 
 interface HeaderProps {
@@ -16,12 +16,13 @@ interface UserInfo {
   sms_sender_id: string;
   sent_quota: number;
   total_quota: number;
+  remaining_quota?: number;
 }
 
 const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { darkMode, toggleTheme } = useTheme(); // ✅ use global theme
+  const { darkMode, toggleTheme } = useTheme();
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -33,7 +34,6 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
     "/send": "💬 Send SMS",
     "/upload": "📤 Upload Contacts",
   };
-
   const pageTitle = titles[location.pathname] || "📊 SMS Dashboard";
 
   const handleLogout = () => {
@@ -45,7 +45,7 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
     try {
       const res = await getUserInfo();
       setUserInfo(res);
-      if (onRefreshUser) onRefreshUser();
+      onRefreshUser?.();
     } catch (err) {
       console.warn("⚠️ Could not load user info:", err);
     } finally {
@@ -61,10 +61,7 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setProfileOpen(false);
       }
     };
@@ -72,64 +69,140 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const remaining =
+    userInfo?.remaining_quota ??
+    (userInfo ? userInfo.total_quota - userInfo.sent_quota : 0);
+
+  const isQuotaEmpty = remaining <= 0;
+
   return (
-    <header className="flex items-center justify-between bg-white dark:bg-gray-900 shadow px-6 py-3 border-b border-gray-200 dark:border-gray-800 transition-colors">
-      <div className="flex items-center gap-3">
+    <header
+      className="
+        flex items-center justify-between
+        bg-white text-gray-900 border-b border-gray-200
+        dark:bg-[#0f172a] dark:text-white dark:border-gray-800
+        px-6 py-3 shadow-md transition-colors
+      "
+    >
+      {/* Left Section */}
+      <div className="flex items-center gap-4">
         <button
           onClick={toggleSidebar}
-          className="md:hidden text-gray-700 dark:text-gray-300"
+          className="md:hidden text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-white"
         >
           <Menu size={22} />
         </button>
 
-        <h1 className="text-lg sm:text-xl font-semibold text-gray-800 dark:text-gray-100">
-          {pageTitle}
-        </h1>
+        <h1 className="text-xl font-semibold">{pageTitle}</h1>
 
         {!loading && userInfo && (
-          <div className="ml-6 flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-3 py-1.5 rounded-full border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center flex-wrap gap-3">
+            {/* Sender */}
+            <div
+              className="
+                flex items-center gap-2
+                bg-blue-100 text-blue-800 border border-blue-300
+                dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700
+                px-3 py-1.5 rounded-full backdrop-blur-sm
+              "
+            >
               <span className="font-medium">Sender:</span>
-              <span className="font-semibold text-base">
-                {userInfo.sms_sender_id || "N/A"}
-              </span>
+              <span className="font-semibold">{userInfo.sms_sender_id}</span>
             </div>
 
-            <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-3 py-1.5 rounded-full border border-gray-300 dark:border-gray-700">
-              <span className="font-medium">SMS:</span>
-              <span className="font-semibold text-base text-blue-600 dark:text-blue-400">
-                {userInfo.sent_quota}
+            {/* SMS Units */}
+            <div
+              className={`
+                flex items-center gap-2 px-3 py-1.5 rounded-full border
+                transition-all duration-300 backdrop-blur-sm
+                ${
+                  isQuotaEmpty
+                    ? "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700 animate-pulse"
+                    : "bg-gradient-to-r from-green-100 to-green-200 text-green-800 border-green-300 dark:from-green-900/30 dark:to-green-800/20 dark:text-green-300 dark:border-green-700"
+                }
+              `}
+            >
+              <span className="font-medium">SMS UNIT:</span>
+              <span className="font-bold text-lg tracking-wide">
+                {isQuotaEmpty ? "0 ❌" : remaining.toLocaleString()}
               </span>
-              <span className="text-gray-500 dark:text-gray-400 text-base">
-                /{userInfo.total_quota}
-              </span>
+              <button
+                onClick={() => alert("💰 Top-up feature coming soon!")}
+                className={`
+                  ml-2 text-xs px-3 py-1 rounded-md font-semibold shadow-sm
+                  transition-all duration-200
+                  ${
+                    isQuotaEmpty
+                      ? "bg-red-600 hover:bg-red-700 text-white"
+                      : "bg-green-600 hover:bg-green-700 text-white"
+                  }
+                `}
+              >
+                {isQuotaEmpty ? "Recharge" : "Top up"}
+              </button>
+            </div>
+
+            {/* API Status */}
+            <div
+              className="
+                flex items-center gap-2
+                bg-green-50 text-green-700 border border-green-300
+                dark:bg-green-900/30 dark:text-green-400 dark:border-green-700
+                px-3 py-1.5 rounded-full
+              "
+            >
+              <span className="font-semibold">{userInfo.sms_sender_id} API</span>
+              <span className="text-xs ml-1">Available ✅</span>
             </div>
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-4 relative" ref={dropdownRef}>
+      {/* Right Section */}
+      <div className="flex items-center gap-4" ref={dropdownRef}>
+        {/* Language & Notifications */}
+        <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
+          <div className="flex items-center gap-1 cursor-pointer hover:text-blue-600 dark:hover:text-white">
+            <Globe size={16} />
+            <span className="text-sm">English</span>
+          </div>
+          <button className="hover:text-blue-600 dark:hover:text-white">
+            <Bell size={18} />
+          </button>
+        </div>
+
+        {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          className="text-gray-600 dark:text-gray-300 hover:text-blue-600"
+          className="text-gray-700 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400"
         >
           {darkMode ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
+        {/* Profile */}
         {userInfo && (
           <div className="relative">
             <button
               onClick={() => setProfileOpen(!profileOpen)}
-              className="flex items-center gap-2 bg-gray-200 dark:bg-gray-800 px-3 py-1.5 rounded-full hover:bg-gray-300 dark:hover:bg-gray-700 transition"
+              className="
+                flex items-center gap-2
+                bg-gray-200 text-gray-800 hover:bg-gray-300
+                dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700
+                px-3 py-1.5 rounded-full transition
+              "
             >
               <User size={18} />
-              <span className="hidden sm:inline font-medium">
-                {userInfo.username}
-              </span>
+              <span className="font-medium text-sm">{userInfo.username}</span>
             </button>
 
             {profileOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50">
+              <div
+                className="
+                  absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800
+                  border border-gray-200 dark:border-gray-700
+                  rounded-md shadow-lg z-50
+                "
+              >
                 <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                     {userInfo.username}
@@ -143,23 +216,21 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
 
                 <button
                   onClick={() => navigate("/change-password")}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="
+                    w-full text-left px-4 py-2 text-sm
+                    text-gray-700 dark:text-gray-200
+                    hover:bg-gray-100 dark:hover:bg-gray-700
+                  "
                 >
                   Change Password
                 </button>
 
-               {/* <button
-                  onClick={() => navigate("/update-email")}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  Update Email
-                </button>*/
-}
-                
-
                 <button
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="
+                    w-full text-left px-4 py-2 text-sm
+                    text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700
+                  "
                 >
                   Logout
                 </button>

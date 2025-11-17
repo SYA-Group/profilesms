@@ -10,12 +10,11 @@
    Theme Variables
 ------------------------------------------ */
 :root {
-  --bg-main-light: #f9fafb;
   --bg-main-dark: #0f172a;
+  --bg-main-light: #f9fafb;;
   --surface-dark: #1e293b;
   --surface-light: #ffffff;
 }
-
 /* ------------------------------------------
    Global Base Styles
 ------------------------------------------ */

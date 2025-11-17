@@ -24,13 +24,26 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   // ✅ Apply theme class to <html> and persist
   useEffect(() => {
     const root = document.documentElement;
+
     if (darkMode) {
       root.classList.add("dark");
-      root.style.backgroundColor = "#111827";
+
+      // 🌙 Use your main dark navy tone
+      root.style.backgroundColor = "#0f172a";
+      root.style.setProperty("--bg-main-dark", "#0f172a");
+      root.style.setProperty("--surface-dark", "#1e293b");
+      root.style.setProperty("--text-dark", "#f9fafb");
+
       localStorage.setItem("theme", "dark");
     } else {
       root.classList.remove("dark");
+
+      // ☀️ Default light colors
       root.style.backgroundColor = "#ffffff";
+      root.style.setProperty("--bg-main-light", "#f9fafb");
+      root.style.setProperty("--surface-light", "#ffffff");
+      root.style.setProperty("--text-light", "#111827");
+
       localStorage.setItem("theme", "light");
     }
   }, [darkMode]);

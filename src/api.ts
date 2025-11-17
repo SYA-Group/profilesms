@@ -91,6 +91,12 @@ export const sendBulkSMS = async (data: { message: string }) => {
   return res.data;
 };
 
+// ✅ NEW: resend failed/sent messages (manual trigger)
+export const resendMessages = async (status: string) => {
+  const res = await api.post("/sms/resend", { status });
+  return res.data;
+};
+
 // ---------- UPLOAD ----------
 export const uploadContacts = async (file: File) => {
   const formData = new FormData();

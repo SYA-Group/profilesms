@@ -15,6 +15,7 @@ import ChangePassword from "./components/ChangePassword";
 import UpdateEmail from "./components/UpdateEmail";
 import ContactSupport from "./components/ContactSupport";
 import ManageUsers from "./pages/ManageUsers";
+import Pricing from "./pages/Pricing";
 const App = () => {
   return (
     <BrowserRouter>
@@ -96,6 +97,16 @@ const App = () => {
     <ProtectedRoute>
       <Layout>
         <ContactSupport />
+      </Layout>
+    </ProtectedRoute>
+  }
+/>
+<Route
+  path="/pricing"
+  element={
+    <ProtectedRoute>
+      <Layout>
+        <Pricing />
       </Layout>
     </ProtectedRoute>
   }

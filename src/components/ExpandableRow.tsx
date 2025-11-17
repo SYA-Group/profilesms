@@ -5,9 +5,7 @@ import "modern-normalize/modern-normalize.css";
 interface MessageRowProps {
   msg: {
     phone: string;
-    message: string;
     status: string;
-    retries: number;
     created_at: string;
   };
   index: number;
@@ -28,16 +26,6 @@ const ExpandableRow: React.FC<MessageRowProps> = ({ msg, index }) => {
         <td className="px-4 sm:px-6 py-3 sm:py-4 font-medium text-base sm:text-lg">
           {msg.phone}
         </td>
-        <td
-          className={`px-4 sm:px-6 py-3 sm:py-4 text-base sm:text-lg ${
-            expanded
-              ? "whitespace-normal break-words"
-              : "truncate max-w-[160px] sm:max-w-lg"
-          }`}
-          title={!expanded ? msg.message : undefined}
-        >
-          {msg.message}
-        </td>
         <td className="px-4 sm:px-6 py-3 sm:py-4">
           <span
             className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-semibold ${
@@ -51,28 +39,12 @@ const ExpandableRow: React.FC<MessageRowProps> = ({ msg, index }) => {
             {msg.status}
           </span>
         </td>
-        <td className="px-4 sm:px-6 py-3 sm:py-4 text-center text-base sm:text-lg">
-          {msg.retries}
-        </td>
         <td className="px-4 sm:px-6 py-3 sm:py-4 text-gray-600 dark:text-gray-400 text-base sm:text-lg whitespace-nowrap">
-          {new Date(msg.created_at).toLocaleString()}
+        {msg.created_at || "-"}
         </td>
       </motion.tr>
 
-      {/* ✅ Optional expanded preview row */}
-      {expanded && (
-        <tr className="bg-gray-50 dark:bg-gray-700">
-          <td
-            colSpan={5}
-            className="px-6 py-3 text-sm text-gray-700 dark:text-gray-200"
-          >
-            <span className="font-semibold text-gray-900 dark:text-gray-100">
-              Full Message:
-            </span>{" "}
-            {msg.message}
-          </td>
-        </tr>
-      )}
+
     </>
   );
 };

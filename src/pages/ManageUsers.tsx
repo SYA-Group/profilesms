@@ -26,7 +26,6 @@ interface User {
   username: string;
   email: string;
   sms_quota: number;
-  sms_used: number;
   is_admin: number;
   suspended: number;
   created_at: string;
@@ -266,7 +265,7 @@ const ManageUsers = () => {
                     <ArrowUpDown size={14} className="inline ml-1" />
                   </th>
                   <th className="p-4 text-center font-semibold">
-                    SMS Used / Quota
+                    SMS Unit
                   </th>
                   <th className="p-4 text-center font-semibold">Admin</th>
                   <th className="p-4 text-center font-semibold">Suspended</th>
@@ -368,7 +367,7 @@ const ManageUsers = () => {
                           className="p-1 rounded-md border text-center dark:bg-gray-700 dark:text-gray-100"
                         />
                       ) : (
-                        `${u.sms_used} / ${u.sms_quota}`
+                        `${u.sms_quota}`
                       )}
                     </td>
 

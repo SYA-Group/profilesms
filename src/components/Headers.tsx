@@ -14,9 +14,7 @@ interface UserInfo {
   username: string;
   email?: string;
   sms_sender_id: string;
-  sent_quota: number;
-  total_quota: number;
-  remaining_quota?: number;
+  sms_quota: number;  // remaining units from backend
 }
 
 const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
@@ -69,21 +67,19 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const remaining =
-    userInfo?.remaining_quota ??
-    (userInfo ? userInfo.total_quota - userInfo.sent_quota : 0);
-
+  // --------------------------------------------------
+  // ⭐ SAFE FIX: always convert sms_quota to number
+  // --------------------------------------------------
+  const remaining = Number(userInfo?.sms_quota ?? 0); // ensures no NaN
   const isQuotaEmpty = remaining <= 0;
 
   return (
-    <header
-      className="
-        flex items-center justify-between
-        bg-white text-gray-900 border-b border-gray-200
-        dark:bg-[#0f172a] dark:text-white dark:border-gray-800
-        px-6 py-3 shadow-md transition-colors
-      "
-    >
+    <header className="
+      flex items-center justify-between
+      bg-white text-gray-900 border-b border-gray-200
+      dark:bg-[#0f172a] dark:text-white dark:border-gray-800
+      px-6 py-3 shadow-md transition-colors
+    ">
       {/* Left Section */}
       <div className="flex items-center gap-4">
         <button
@@ -97,15 +93,14 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
 
         {!loading && userInfo && (
           <div className="flex items-center flex-wrap gap-3">
+
             {/* Sender */}
-            <div
-              className="
-                flex items-center gap-2
-                bg-blue-100 text-blue-800 border border-blue-300
-                dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700
-                px-3 py-1.5 rounded-full backdrop-blur-sm
-              "
-            >
+            <div className="
+              flex items-center gap-2
+              bg-blue-100 text-blue-800 border border-blue-300
+              dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700
+              px-3 py-1.5 rounded-full backdrop-blur-sm
+            ">
               <span className="font-medium">Sender:</span>
               <span className="font-semibold">{userInfo.sms_sender_id}</span>
             </div>
@@ -124,8 +119,9 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
             >
               <span className="font-medium">SMS UNIT:</span>
               <span className="font-bold text-lg tracking-wide">
-                {isQuotaEmpty ? "0 ❌" : userInfo.total_quota}
+                {isQuotaEmpty ? "0 ❌" : remaining.toLocaleString()}
               </span>
+
               <button
                 onClick={() => alert("💰 Top-up feature coming soon!")}
                 className={`
@@ -143,14 +139,12 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
             </div>
 
             {/* API Status */}
-            <div
-              className="
-                flex items-center gap-2
-                bg-green-50 text-green-700 border border-green-300
-                dark:bg-green-900/30 dark:text-green-400 dark:border-green-700
-                px-3 py-1.5 rounded-full
-              "
-            >
+            <div className="
+              flex items-center gap-2
+              bg-green-50 text-green-700 border border-green-300
+              dark:bg-green-900/30 dark:text-green-400 dark:border-green-700
+              px-3 py-1.5 rounded-full
+            ">
               <span className="font-semibold">{userInfo.sms_sender_id} API</span>
               <span className="text-xs ml-1">Available ✅</span>
             </div>
@@ -160,7 +154,6 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
 
       {/* Right Section */}
       <div className="flex items-center gap-4" ref={dropdownRef}>
-        {/* Language & Notifications */}
         <div className="flex items-center gap-3 text-gray-700 dark:text-gray-300">
           <div className="flex items-center gap-1 cursor-pointer hover:text-blue-600 dark:hover:text-white">
             <Globe size={16} />
@@ -196,13 +189,11 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
             </button>
 
             {profileOpen && (
-              <div
-                className="
-                  absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800
-                  border border-gray-200 dark:border-gray-700
-                  rounded-md shadow-lg z-50
-                "
-              >
+              <div className="
+                absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800
+                border border-gray-200 dark:border-gray-700
+                rounded-md shadow-lg z-50
+              ">
                 <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                     {userInfo.username}

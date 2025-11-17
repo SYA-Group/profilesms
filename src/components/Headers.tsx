@@ -55,7 +55,7 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
 
   useEffect(() => {
     fetchUserInfo();
-    const interval = setInterval(fetchUserInfo, 30000);
+    const interval = setInterval(fetchUserInfo, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -124,7 +124,7 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
             >
               <span className="font-medium">SMS UNIT:</span>
               <span className="font-bold text-lg tracking-wide">
-                {isQuotaEmpty ? "0 ❌" : remaining.toLocaleString()}
+                {isQuotaEmpty ? "0 ❌" : userInfo.total_quota}
               </span>
               <button
                 onClick={() => alert("💰 Top-up feature coming soon!")}

@@ -6,19 +6,23 @@ const api = axios.create({
   baseURL: API_URL,
 });
 
-api.interceptors.request.use((config) => {
-  const url = config.url || "";
 
-  // Make GET /pricing public (no token)
-  if (config.method === "get" && (url.startsWith("/pricing"))) {
-    if (config.headers) {
-      delete config.headers.Authorization;
-    }
+// --------------------------------------------
+// 🔵 REQUEST INTERCEPTOR — attach access token
+// --------------------------------------------
+api.interceptors.request.use((config) => {
+  // ❌ Skip token for auth endpoints (login, register, refresh)
+  if (
+    config.url?.includes("/auth/login") ||
+    config.url?.includes("/auth/register")
+  ) {
     return config;
   }
 
-  // Otherwise include JWT (for all protected routes)
-  const token = localStorage.getItem("token");
+  // Attach access token normally
+  const token =
+    localStorage.getItem("token") || sessionStorage.getItem("token");
+
   if (token) {
     config.headers = config.headers || {};
     config.headers.Authorization = `Bearer ${token}`;
@@ -26,6 +30,105 @@ api.interceptors.request.use((config) => {
 
   return config;
 });
+
+
+
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null) => {
+  failedQueue.forEach((prom) => {
+    if (error) prom.reject(error);
+    else prom.resolve(token);
+  });
+  failedQueue = [];
+};
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    const status = error.response?.status;
+    const url = originalRequest?.url || "";
+
+   // IMPORTANT: Skip refresh for all auth endpoints
+if (
+  url.includes("/auth/login") ||
+  url.includes("/auth/register") ||
+  url.includes("/auth/refresh")
+) {
+  return Promise.reject(error);
+}
+
+
+    // If unauthorized AND this request has not retried yet
+    if (status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      const refreshToken =
+        localStorage.getItem("refresh_token") ||
+        sessionStorage.getItem("refresh_token");
+
+      if (!refreshToken) {
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.href = "/login";
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((newToken) => {
+            originalRequest.headers["Authorization"] = "Bearer " + newToken;
+            return api(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      isRefreshing = true;
+
+      try {
+        const res = await axios.post(
+          `${API_URL}/auth/refresh`,
+          null,
+          { headers: { Authorization: `Bearer ${refreshToken}` } }
+        );
+
+        const newAccessToken = res.data.access_token;
+
+        // Put the new token in correct storage
+        if (localStorage.getItem("refresh_token")) {
+          localStorage.setItem("token", newAccessToken);
+        } else {
+          sessionStorage.setItem("token", newAccessToken);
+        }
+
+        api.defaults.headers.common["Authorization"] =
+          "Bearer " + newAccessToken;
+
+        processQueue(null, newAccessToken);
+
+        originalRequest.headers["Authorization"] =
+          "Bearer " + newAccessToken;
+
+        return api(originalRequest);
+
+      } catch (refreshErr) {
+        processQueue(refreshErr, null);
+        localStorage.clear();
+        sessionStorage.clear();
+        window.location.href = "/login";
+        return Promise.reject(refreshErr);
+
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 
 
@@ -188,28 +291,6 @@ export const deletePricing = async (id: number) => {
   const res = await api.delete(`/pricing/${id}`);
   return res.data;
 };
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const status = error.response?.status;
-
-    const publicPages = ["/pricing", "/pricing/", "/login", "/register"];
-    const current = window.location.pathname;
-
-    if (publicPages.includes(current)) {
-      return Promise.reject(error);
-    }
-
-    if (status === 401) {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
-    }
-
-    return Promise.reject(error);
-  }
-);
-
 
 
 export const searchCount = async (

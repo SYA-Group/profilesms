@@ -6,7 +6,8 @@ import "../index.css";
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const token = localStorage.getItem("token");
+  const token =
+  localStorage.getItem("token") || sessionStorage.getItem("token");
 
   // ---------------------------
   // PUBLIC LAYOUT (no login)

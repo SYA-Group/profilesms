@@ -19,6 +19,7 @@ import Pricing from "./pages/Pricing";
 import ElasticSearch from "./pages/ElasticSearch";
 import PricingAdmin from "./pages/PricingAdmin";
 const App = () => {
+  const token = localStorage.getItem("token") || sessionStorage.getItem("token");
   return (
     <BrowserRouter>
      <Toaster position="top-center" reverseOrder={false} />
@@ -27,11 +28,12 @@ const App = () => {
         <Route
   path="/"
   element={
-    localStorage.getItem("token")
+    token
       ? <Navigate to="/dashboard" replace />
       : <Navigate to="/pricing" replace />
   }
 />
+
 
 
         {/* Public route */}

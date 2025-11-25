@@ -9,6 +9,7 @@ const Login = () => {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false); // ⭐ NEW
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,10 +17,21 @@ const Login = () => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       const data = await login(username, password);
-      localStorage.setItem("token", data.access_token);
+
+      // ⭐ SAVE TOKEN CONDITIONALLY
+      if (remember) {
+        localStorage.setItem("token", data.access_token);
+        localStorage.setItem("refresh_token", data.refresh_token);
+      } else {
+        sessionStorage.setItem("token", data.access_token);
+        sessionStorage.setItem("refresh_token", data.refresh_token);
+      }
+
       navigate("/dashboard");
+
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.error || "Invalid username or password");
@@ -67,6 +79,19 @@ const Login = () => {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+          </div>
+
+          {/* ⭐ REMEMBER ME CHECKBOX */}
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="w-4 h-4"
+              />
+              Remember Me
+            </label>
           </div>
 
           {error && (

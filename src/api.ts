@@ -430,6 +430,24 @@ export const addUploadedContact = async (data: { name: string; phone: string }) 
   return res.data;
 };
 
+// =====================================================
+// ✅ UPLOAD SMS API (NON-BREAKING ADDITION)
+// =====================================================
+
+export const sendUploadSMS = async (data: { message: string }) => {
+  const res = await api.post("/upload/sms/send", data);
+  return res.data;
+};
+
+export const stopUploadSMS = async () => {
+  const res = await api.post("/upload/sms/stop");
+  return res.data;
+};
+
+export const getUploadSMSProgress = async () => {
+  const res = await api.get("/upload/sms/progress");
+  return res.data;
+};
 
 
 

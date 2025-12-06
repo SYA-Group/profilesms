@@ -1,14 +1,27 @@
-import { useEffect, useState } from "react";
-import { addUploadedContact, getUploadedContacts, uploadContacts } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { addUploadedContact, getUploadedContacts, getUploadSMSProgress, sendUploadSMS, stopUploadSMS, uploadContacts } from "../api";
 import { motion } from "framer-motion";
 import { useTheme } from "../context/ThemeContext";
-import { Search, RefreshCcw, ArrowUpDown, Plus, FileDown } from "lucide-react";
+import { Search, RefreshCcw, ArrowUpDown, Plus } from "lucide-react";
 import toast from "react-hot-toast";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 
 interface UploadRow {
   phone: string;
   name: string | null;
   status: string;
+  created_at?: string | null;
 }
 
 interface UploadReport {
@@ -21,6 +34,25 @@ interface UploadReport {
 }
 
 const PAGE_SIZE = 10;
+
+
+
+const formatCairoTime = (dateStr?: string | null) => {
+  if (!dateStr) return "-";
+
+  const d = new Date(dateStr);
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+};
+
 
 const UploadContact = () => {
   const { darkMode } = useTheme();
@@ -38,6 +70,7 @@ const UploadContact = () => {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [showFormatModal, setShowFormatModal] = useState(false);
+  const hydrated = useRef(false);
 
   // New: Add Contact Modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -45,11 +78,55 @@ const UploadContact = () => {
   const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
 
   const [report, setReport] = useState<UploadReport>(emptyReport);
+  const sentCount = report.rows.filter(r => r.status === "sent").length;
+  const failedCount = report.rows.filter(r => r.status === "failed").length;
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const userKey = `upload_contacts_state_${user.id}`;
+  const pendingCount = report.rows.filter(r => r.status === "pending").length;
+  type StatusFilter = "all" | "sent" | "failed" | "pending";
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+
+const statusData = [
+  { name: "Sent", value: sentCount },
+  { name: "Failed", value: failedCount },
+  { name: "Pending", value: pendingCount },
+];
+
+
+
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<"phone" | "status">("phone");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
+  // ================== UPLOAD SMS STATE ==================
+const [smsMessage, setSmsMessage] = useState("");
+const [smsSending, setSmsSending] = useState(false);
+const [smsProgress, setSmsProgress] = useState({
+  sent: 0,
+  failed: 0,
+  units_used: 0,
+});
+
+
+const timelineData = Object.values(
+  report.rows.reduce((acc: any, row) => {
+    if (row.status !== "sent" || !row.created_at) return acc;
+
+    const hour = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Africa/Cairo",
+      hour: "numeric",
+      hour12: true,
+    }).format(new Date(row.created_at));
+
+    acc[hour] = acc[hour] || { hour, count: 0 };
+    acc[hour].count += 1;
+    return acc;
+  }, {})
+);
+
 
   const handleUpload = async () => {
     if (!file) return alert("Please select a file first!");
@@ -89,25 +166,94 @@ const UploadContact = () => {
       console.error(err);
     }
   };
+  const handleStartUploadSMS = async () => {
+    if (!smsMessage.trim())
+      return toast.error("Please enter SMS message");
+  
+    try {
+      await sendUploadSMS({ message: smsMessage.trim() });
+      setSmsSending(true);
+      toast.success("Upload SMS started");
+    } catch {
+      toast.error("Failed to start upload SMS");
+    }
+  };
+  
+  const handleStopUploadSMS = async () => {
+    try {
+      await stopUploadSMS();
+      setSmsSending(false);
+      setSmsProgress({ sent: 0, failed: 0, units_used: 0 });
+      toast("Upload SMS stopped");
+    } catch {
+      toast.error("Failed to stop upload SMS");
+    }
+  };
+  
 
   useEffect(() => {
     refreshUploaded();
   }, []);
+  useEffect(() => {
+    if (!hydrated.current) return;
+  
+    // ✅ DO NOT overwrite storage with empty message
+    if (!smsMessage && !search && page === 1) return;
+  
+    localStorage.setItem(
+      userKey,
+      JSON.stringify({
+        smsMessage,
+        search,
+        page,
+      })
+    );
+  }, [smsMessage, search, page]);
+  
+  
+  useEffect(() => {
+    const saved = localStorage.getItem(userKey);
+    if (!saved) {
+      hydrated.current = true;
+      return;
+    }
+  
+    try {
+      const parsed = JSON.parse(saved);
+  
+      if (parsed.smsMessage !== undefined)
+        setSmsMessage(parsed.smsMessage);
+  
+      if (parsed.search !== undefined)
+        setSearch(parsed.search);
+  
+      if (parsed.page !== undefined)
+        setPage(parsed.page);
+    } catch {}
+  
+    hydrated.current = true;
+  }, []);
+  
+  
 
   // FILTER & SORT
   const filtered = report.rows
-    .filter(
-      (row) =>
-        row.phone.includes(search) ||
-        row.status.toLowerCase().includes(search.toLowerCase())
-    )
-    .sort((a, b) => {
-      const valA = a[sortField];
-      const valB = b[sortField];
-      return sortOrder === "asc"
-        ? String(valA).localeCompare(String(valB))
-        : String(valB).localeCompare(String(valA));
-    });
+  .filter((row) => {
+    if (statusFilter !== "all" && row.status !== statusFilter) return false;
+
+    return (
+      row.phone.includes(search) ||
+      row.status.toLowerCase().includes(search.toLowerCase())
+    );
+  })
+  .sort((a, b) => {
+    const valA = a[sortField];
+    const valB = b[sortField];
+    return sortOrder === "asc"
+      ? String(valA).localeCompare(String(valB))
+      : String(valB).localeCompare(String(valA));
+  });
+
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -121,30 +267,54 @@ const UploadContact = () => {
     }
   };
 
-  // EXPORT CSV
-  const handleExportCSV = () => {
-    if (report.rows.length === 0)
-      return toast.error("No uploaded contacts to export.");
+  useEffect(() => {
+    if (!smsSending) return;
+  
+    const t = setInterval(async () => {
+      try {
+        const res = await getUploadSMSProgress();
+        setSmsProgress(res || { sent: 0, failed: 0, units_used: 0 });
+      } catch {}
+    }, 2000);
+  
+    return () => clearInterval(t);
+  }, [smsSending]);
+  
 
-    const headers = ["Phone", "Name", "Status"];
-    const rows = report.rows.map((r) => [
+  const handleExportCSV = () => {
+    const rowsToExport =
+      statusFilter === "all"
+        ? report.rows
+        : report.rows.filter((r) => r.status === statusFilter);
+  
+    if (rowsToExport.length === 0)
+      return toast.error("No data to export.");
+  
+    const headers = ["Phone", "Name", "Status", "Sent Time"];
+    const rows = rowsToExport.map((r) => [
       `"${r.phone}"`,
       `"${r.name ?? ""}"`,
       `"${r.status}"`,
+      `"${formatCairoTime(r.created_at)}"`,
     ]);
-
+  
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-
+  
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-
+  
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", "uploaded_contacts.csv");
+    link.setAttribute(
+      "download",
+      `uploaded_contacts_${statusFilter}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
+  
+  
 
   // ADD CONTACT MANUALLY
   const handleAddContact = async () => {
@@ -241,7 +411,7 @@ const UploadContact = () => {
       </motion.div>
 
       {/* Summary Cards */}
-      <div className="w-full max-w-5xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+      <div className="w-full max-w-5xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-12">
         <div className="p-5 rounded-2xl bg-blue-600 text-white shadow">
           <div className="text-sm opacity-80">Total in file</div>
           <div className="text-2xl font-bold">{report.total}</div>
@@ -257,11 +427,79 @@ const UploadContact = () => {
           <div className="text-2xl font-bold">{report.skipped}</div>
         </div>
 
-        <div className="p-5 rounded-2xl bg-purple-600 text-white shadow">
+        <div
+  onClick={() => {
+    setStatusFilter("all");
+    setPage(1);
+  }}
+  className={`p-5 rounded-2xl bg-purple-600 text-white shadow cursor-pointer
+    ${statusFilter === "all" ? "ring-4 ring-white/40" : ""}`}
+>
+
           <div className="text-sm opacity-80">Total in DB</div>
           <div className="text-2xl font-bold">{report.total_in_db}</div>
         </div>
+        <div
+          onClick={() => {
+            setStatusFilter("sent");
+            setPage(1);
+          }}
+          className={`p-5 rounded-2xl bg-green-700 text-white shadow cursor-pointer
+            ${statusFilter === "sent" ? "ring-4 ring-white/40" : ""}`}
+        >
+
+      <div className="text-sm opacity-80">Sent</div>
+      <div className="text-2xl font-bold">{sentCount}</div>
+    </div>
+
+    <div
+  onClick={() => {
+    setStatusFilter("failed");
+    setPage(1);
+  }}
+  className={`p-5 rounded-2xl bg-red-600 text-white shadow cursor-pointer
+    ${statusFilter === "failed" ? "ring-4 ring-white/40" : ""}`}
+>
+
+      <div className="text-sm opacity-80">Failed</div>
+      <div className="text-2xl font-bold">{failedCount}</div>
+    </div>
+
       </div>
+      {/* ================= REPORT VISUALIZATION ================= */}
+<div className="w-full max-w-3xl grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+
+{/* Status Distribution */}
+<div className={`p-6 rounded-2xl shadow ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+  <h3 className="font-semibold mb-4">Delivery Status Distribution</h3>
+  <ResponsiveContainer width="100%" height={200}>
+    <PieChart>
+      <Pie data={statusData} dataKey="value" outerRadius={90} label>
+        <Cell fill="#16a34a" /> {/* Sent */}
+        <Cell fill="#dc2626" /> {/* Failed */}
+        <Cell fill="#eab308" /> {/* Pending */}
+      </Pie>
+      <Tooltip />
+    </PieChart>
+  </ResponsiveContainer>
+</div>
+
+{/* Timeline */}
+<div className={`p-6 rounded-2xl shadow ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+  <h3 className="font-semibold mb-4">Messages Sent Over Time (Cairo)</h3>
+  <ResponsiveContainer width="100%" height={200}>
+    <BarChart data={timelineData}>
+      <XAxis dataKey="hour" />
+      <YAxis />
+      <Tooltip />
+      <Bar dataKey="count" fill="#2563eb" />
+    </BarChart>
+  </ResponsiveContainer>
+</div>
+
+</div>
+{/* ======================================================== */}
+
 
       {/* Upload Table Controls */}
       <div className="w-full max-w-5xl flex flex-wrap justify-between mb-6 gap-3">
@@ -286,12 +524,16 @@ const UploadContact = () => {
             <Plus size={18} /> Add Contact
           </button>
 
+          <div className="flex gap-2">
           <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded-xl"
-          >
-            <FileDown size={18} /> Export
-          </button>
+  onClick={handleExportCSV}
+  className="bg-yellow-500 hover:bg-yellow-600 text-white px-5 py-2 rounded-xl"
+>
+  Export ({statusFilter.toUpperCase()})
+</button>
+
+</div>
+
 
           <button
             onClick={refreshUploaded}
@@ -309,49 +551,59 @@ const UploadContact = () => {
         } w-full max-w-5xl`}
       >
         <table className="w-full text-base">
-          <thead className={`${darkMode ? "bg-slate-900" : "bg-gray-100"}`}>
-            <tr>
-              <th
-                onClick={() => toggleSort("phone")}
-                className="px-6 py-4 font-semibold cursor-pointer"
-              >
-                Phone <ArrowUpDown size={14} className="inline ml-1" />
-              </th>
-              <th
-                onClick={() => toggleSort("status")}
-                className="px-6 py-4 font-semibold cursor-pointer"
-              >
-                Status <ArrowUpDown size={14} className="inline ml-1" />
-              </th>
-            </tr>
-          </thead>
+        <thead>
+        <tr>
+  <th
+    onClick={() => toggleSort("phone")}
+    className="px-6 py-4 font-semibold cursor-pointer"
+  >
+    Phone <ArrowUpDown size={14} className="inline ml-1" />
+  </th>
 
-          <tbody>
-            {visible.map((row, i) => (
-              <tr
-                key={i}
-                className={`transition ${
-                  darkMode ? "hover:bg-slate-700/50" : "hover:bg-gray-100"
-                }`}
-              >
-                <td className="px-6 py-3 font-mono">{row.phone}</td>
+  <th className="px-6 py-4 font-semibold">
+    Status
+  </th>
 
-                <td className="px-6 py-3">
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      row.status === "inserted"
-                        ? "bg-green-200 text-green-800"
-                        : row.status === "duplicate"
-                        ? "bg-yellow-200 text-yellow-800"
-                        : "bg-red-200 text-red-800"
-                    }`}
-                  >
-                    {row.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+  <th className="px-6 py-4 font-semibold">
+    Sent Time (Cairo)
+  </th>
+</tr>
+</thead>
+
+
+<tbody>
+  {visible.map((row, i) => (
+    <tr
+      key={i}
+      className={`transition ${
+        darkMode ? "hover:bg-slate-700/50" : "hover:bg-gray-100"
+      }`}
+    >
+      <td className="px-6 py-3 font-mono">{row.phone}</td>
+
+      <td className="px-6 py-3">
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-semibold ${
+            row.status === "sent"
+              ? "bg-green-200 text-green-800"
+              : row.status === "failed"
+              ? "bg-red-200 text-red-800"
+              : "bg-yellow-200 text-yellow-800"
+          }`}
+        >
+          {row.status}
+        </span>
+      </td>
+
+      <td className="px-6 py-3 text-sm">
+        {row.status === "sent"
+          ? formatCairoTime(row.created_at)
+          : "-"}
+      </td>
+    </tr>
+  ))}
+</tbody>
+
         </table>
 
         {/* Pagination */}
@@ -375,6 +627,70 @@ const UploadContact = () => {
           </button>
         </div>
       </motion.div>
+      {/* ================= UPLOAD SMS PANEL ================= */}
+<motion.div
+  className="mt-10 w-full max-w-5xl bg-white dark:bg-slate-800 rounded-2xl shadow p-6"
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+>
+  <h2 className="text-xl font-bold mb-3 text-gray-800 dark:text-gray-100">
+    Send SMS to Uploaded Numbers
+  </h2>
+
+  <textarea
+    className="w-full h-28 p-3 rounded-lg border dark:bg-slate-900"
+    placeholder="Write SMS message here..."
+    value={smsMessage}
+    onChange={(e) => setSmsMessage(e.target.value)}
+    disabled={smsSending}
+  />
+
+  <div className="flex gap-3 mt-4">
+    <button
+      onClick={handleStartUploadSMS}
+      disabled={smsSending}
+      className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl disabled:bg-gray-400"
+    >
+      Start Sending
+    </button>
+
+    <button
+      onClick={handleStopUploadSMS}
+      disabled={!smsSending}
+      className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl disabled:bg-gray-400"
+    >
+      Stop
+    </button>
+  </div>
+
+  {/* Progress */}
+  {smsSending && (
+    <div className="mt-6">
+      <div className="flex gap-6 text-sm">
+        <span>✅ Sent: {smsProgress.sent}</span>
+        <span>❌ Failed: {smsProgress.failed}</span>
+        <span>📦 Units Used: {smsProgress.units_used}</span>
+      </div>
+
+      <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full mt-2 overflow-hidden">
+        <div
+          className="h-full bg-green-600 transition-all"
+          style={{
+            width: `${
+              smsProgress.sent + smsProgress.failed
+                ? (smsProgress.sent /
+                    (smsProgress.sent + smsProgress.failed)) *
+                  100
+                : 0
+            }%`,
+          }}
+        />
+      </div>
+    </div>
+  )}
+</motion.div>
+{/* ==================================================== */}
+
 
       {/* Add Contact Modal */}
       {showAddModal && (

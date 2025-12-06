@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import Cookies from "js-cookie";
 import { useTheme } from "../context/ThemeContext";
 import PricingCard from "../components/PricingCard";
-import { getPricing, getUserInfo, sendSupportMessage } from "../api";
+import { getPricing, getUserInfo, sendLeadSupportMessage, sendSupportMessage } from "../api";
 
 interface Plan {
   id: number;
@@ -53,48 +53,57 @@ const Pricing = () => {
   }, []);
 
   const handleStartNow = async (data: any) => {
-    if (!isLoggedIn) {
-      const params = new URLSearchParams(data);
-      window.location.href = "/lead-register?" + params.toString();
-      return;
-    }
-
     try {
-      const user = await getUserInfo();
-      const username = user?.username || "Unknown User";
-
-      const msg = `
-New Pricing Request:
-
-User: ${username}
-Sender ID: ${data.sender}
-SMS API URL: ${data.sms_api_url}
-API Token: ${data.api_token}
-Price: ${data.price}
-SMS Credits: ${data.sms}
-      `;
-
-      await sendSupportMessage({ message: msg });
-
-      // ⭐ Show popup over selected card
+      if (!isLoggedIn) {
+        // ✅ Anonymous → send lead
+        await sendLeadSupportMessage({
+          name: "Pricing Page Lead",
+          phone: "N/A",
+          email: "",
+          message: "Pricing request from website",
+          price: data.price,
+          sms: data.sms,
+          sender: data.senderIDs,
+          api: data.apiIntegration,
+          token: "N/A",
+        });
+  
+      } else {
+        // ✅ Logged-in → authenticated support
+        const user = await getUserInfo();
+        const username = user?.username || "Unknown User";
+  
+        const msg = `
+  New Pricing Request:
+  
+  User: ${username}
+  Price: ${data.price}
+  SMS Credits: ${data.sms}
+  Sender IDs: ${data.senderIDs}
+  API Integration: ${data.apiIntegration}
+        `;
+  
+        await sendSupportMessage({ message: msg });
+      }
+  
+      // ✅ success popup
       setPopup({
-        planId: data.id, // PricingCard sends plan.id inside data
+        planId: data.id,
         text: "Request Sent ✔️",
       });
-
-      // Auto hide after 3s
+  
       setTimeout(() => setPopup(null), 3000);
-
+  
     } catch (err) {
       setPopup({
         planId: data.id,
-        text: "Failed to send ❌",
+        text: "Failed ❌",
       });
       setTimeout(() => setPopup(null), 3000);
       console.error(err);
     }
   };
-
+  
   return (
     <div
       className={`min-h-screen ${

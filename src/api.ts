@@ -449,6 +449,8 @@ export const getUploadSMSProgress = async () => {
   return res.data;
 };
 
+export const sendLeadSupportMessage = (data: any) =>
+  axios.post("/api/support/lead", data);
 
 
 export default api;

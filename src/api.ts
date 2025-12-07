@@ -419,10 +419,22 @@ export const topupSMS = async (userId: number, amount: number) => {
   const res = await api.post(`/users/${userId}/topup`, { amount });
   return res.data;
 };
-export const getUploadedContacts = async () => {
-  const res = await api.get("/upload/contacts");
+export const getUploadedContacts = async (
+  page: number = 1,
+  status?: string
+) => {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+
+  if (status && status !== "all") {
+    params.set("status", status);
+  }
+
+  const res = await api.get(`/upload/contacts?${params.toString()}`);
   return res.data;
 };
+
+
 
 // ADD CONTACT INTO uploaded_contact TABLE
 export const addUploadedContact = async (data: { name: string; phone: string }) => {
@@ -451,6 +463,17 @@ export const getUploadSMSProgress = async () => {
 
 export const sendLeadSupportMessage = (data: any) =>
   axios.post("/api/support/lead", data);
+
+export const exportUploadedContacts = async (status?: string) => {
+  const params = new URLSearchParams();
+  if (status && status !== "all") {
+    params.set("status", status);
+  }
+
+  const res = await api.get(`/upload/contacts/export?${params.toString()}`);
+  return res.data.rows;
+};
+
 
 
 export default api;

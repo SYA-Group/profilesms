@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { addUploadedContact, getUploadedContacts, getUploadSMSProgress, sendUploadSMS, stopUploadSMS, uploadContacts } from "../api";
+import { addUploadedContact, exportUploadedContacts, getUploadedContacts, getUploadSMSProgress, sendUploadSMS, stopUploadSMS, uploadContacts } from "../api";
 import { motion } from "framer-motion";
 import { useTheme } from "../context/ThemeContext";
 import { Search, RefreshCcw, ArrowUpDown, Plus } from "lucide-react";
@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { getSmsUnits } from "../utils/sms";
 
 
 interface UploadRow {
@@ -72,31 +73,33 @@ const UploadContact = () => {
   const [showFormatModal, setShowFormatModal] = useState(false);
   const hydrated = useRef(false);
 
+  const [stats, setStats] = useState({
+    sent: 0,
+    failed: 0,
+    pending: 0,
+    total: 0,
+  });
+  
+
   // New: Add Contact Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [newContact, setNewContact] = useState({ name: "", phone: "" });
   const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
 
   const [report, setReport] = useState<UploadReport>(emptyReport);
-  const sentCount = report.rows.filter(r => r.status === "sent").length;
-  const failedCount = report.rows.filter(r => r.status === "failed").length;
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userKey = `upload_contacts_state_${user.id}`;
-  const pendingCount = report.rows.filter(r => r.status === "pending").length;
   type StatusFilter = "all" | "sent" | "failed" | "pending";
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
 
-const statusData = [
-  { name: "Sent", value: sentCount },
-  { name: "Failed", value: failedCount },
-  { name: "Pending", value: pendingCount },
-];
 
-
-
-
+  const statusData = [
+    { name: "Sent", value: stats.sent },
+    { name: "Failed", value: stats.failed },
+    { name: "Pending", value: stats.pending },
+  ];
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<"phone" | "status">("phone");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
@@ -156,16 +159,27 @@ const timelineData = Object.values(
 
   const refreshUploaded = async () => {
     try {
-      const res = await getUploadedContacts();
+      const res = await getUploadedContacts(page, statusFilter);
+  
       setReport((prev) => ({
         ...prev,
-        total_in_db: res.total_in_db ?? 0,
         rows: res.rows || [],
+        total_in_db: res.total_in_db ?? 0,
       }));
+  
+      if (res.stats) {
+        setStats({
+          sent: res.stats.sent,
+          failed: res.stats.failed,
+          pending: res.stats.pending,
+          total: res.stats.total,
+        });
+      }
     } catch (err) {
       console.error(err);
     }
   };
+  
   const handleStartUploadSMS = async () => {
     if (!smsMessage.trim())
       return toast.error("Please enter SMS message");
@@ -190,7 +204,11 @@ const timelineData = Object.values(
     }
   };
   
-
+  useEffect(() => {
+    refreshUploaded();
+  }, [page, statusFilter]);
+  
+  
   useEffect(() => {
     refreshUploaded();
   }, []);
@@ -236,27 +254,25 @@ const timelineData = Object.values(
   
   
 
-  // FILTER & SORT
-  const filtered = report.rows
-  .filter((row) => {
-    if (statusFilter !== "all" && row.status !== statusFilter) return false;
-
-    return (
-      row.phone.includes(search) ||
-      row.status.toLowerCase().includes(search.toLowerCase())
-    );
-  })
-  .sort((a, b) => {
-    const valA = a[sortField];
-    const valB = b[sortField];
-    return sortOrder === "asc"
-      ? String(valA).localeCompare(String(valB))
-      : String(valB).localeCompare(String(valA));
+  const sortedRows = [...report.rows].sort((a, b) => {
+    const dir = sortOrder === "asc" ? 1 : -1;
+  
+    if (sortField === "phone") {
+      return a.phone.localeCompare(b.phone) * dir;
+    }
+  
+    if (sortField === "status") {
+      return a.status.localeCompare(b.status) * dir;
+    }
+  
+    return 0;
   });
 
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.ceil((report.total_in_db || 0) / PAGE_SIZE);
+  const visible = sortedRows;
+
+
 
   const toggleSort = (field: "phone" | "status") => {
     if (sortField === field) {
@@ -266,6 +282,9 @@ const timelineData = Object.values(
       setSortOrder("asc");
     }
   };
+
+  
+  
 
   useEffect(() => {
     if (!smsSending) return;
@@ -279,40 +298,53 @@ const timelineData = Object.values(
   
     return () => clearInterval(t);
   }, [smsSending]);
+
+  useEffect(() => {
+    if (!smsSending) return;
+  
+    const interval = setInterval(() => {
+      refreshUploaded();
+    }, 3000); // every 3 seconds
+  
+    return () => clearInterval(interval);
+  }, [smsSending]);
+  
   
 
-  const handleExportCSV = () => {
-    const rowsToExport =
-      statusFilter === "all"
-        ? report.rows
-        : report.rows.filter((r) => r.status === statusFilter);
+  const handleExportCSV = async () => {
+    try {
+      const rows = await exportUploadedContacts(statusFilter);
   
-    if (rowsToExport.length === 0)
-      return toast.error("No data to export.");
+      if (!rows.length) {
+        toast.error("No data to export");
+        return;
+      }
   
-    const headers = ["Phone", "Name", "Status", "Sent Time"];
-    const rows = rowsToExport.map((r) => [
-      `"${r.phone}"`,
-      `"${r.name ?? ""}"`,
-      `"${r.status}"`,
-      `"${formatCairoTime(r.created_at)}"`,
-    ]);
+      const headers = ["Phone", "Name", "Status", "Sent Time"];
+      const csvRows = rows.map((r: UploadRow) => [
+        `"${r.phone}"`,
+        `"${r.name ?? ""}"`,
+        `"${r.status}"`,
+        `"${formatCairoTime(r.created_at)}"`,
+      ]);
   
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      const csv = [headers.join(","), ...csvRows.map((r: any[]) => r.join(","))].join("\n");
   
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
   
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute(
-      "download",
-      `uploaded_contacts_${statusFilter}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `uploaded_contacts_${statusFilter}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  
+    } catch {
+      toast.error("Failed to export data");
+    }
   };
+  
   
   
 
@@ -338,32 +370,25 @@ const timelineData = Object.values(
     setErrors({});
   
     try {
-      // ⭐ REAL BACKEND CALL
       const res = await addUploadedContact({
         name: name.trim(),
         phone: normalized,
       });
-  
-      toast.success(res.message || "Contact added!");
-  
-      // ⭐ Immediately insert into table (no refresh needed)
+    
+      toast.success("Contact added");
+    
+      // ✅ USE BACKEND ROW (REAL STATUS)
       setReport((prev) => ({
         ...prev,
-        rows: [
-          {
-            phone: normalized,
-            name: name.trim(),
-            status: "inserted",
-          },
-          ...prev.rows,
-        ],
+        rows: [res.row, ...prev.rows],  // ✅ comes from DB
         inserted: prev.inserted + 1,
         total_in_db: (prev.total_in_db ?? 0) + 1,
       }));
-  
+    
       setShowAddModal(false);
       setNewContact({ name: "", phone: "" });
     } catch (err: any) {
+    
       toast.error(err?.response?.data?.error || "Failed to add contact.");
     }
   };
@@ -449,7 +474,7 @@ const timelineData = Object.values(
         >
 
       <div className="text-sm opacity-80">Sent</div>
-      <div className="text-2xl font-bold">{sentCount}</div>
+      <div className="text-2xl font-bold">{stats.sent}</div>
     </div>
 
     <div
@@ -462,7 +487,7 @@ const timelineData = Object.values(
 >
 
       <div className="text-sm opacity-80">Failed</div>
-      <div className="text-2xl font-bold">{failedCount}</div>
+      <div className="text-2xl font-bold">{stats.failed}</div>
     </div>
 
       </div>
@@ -644,7 +669,10 @@ const timelineData = Object.values(
     onChange={(e) => setSmsMessage(e.target.value)}
     disabled={smsSending}
   />
-
+<div className="flex justify-between text-xs text-gray-500">
+  <span>{smsMessage.length} characters</span>
+  <span>{getSmsUnits(smsMessage)} SMS unit(s)</span>
+</div>
   <div className="flex gap-3 mt-4">
     <button
       onClick={handleStartUploadSMS}

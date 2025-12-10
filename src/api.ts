@@ -485,5 +485,8 @@ export const resendAllUploadedContacts = async () => {
   return res.data;
 };
 
+export const resetUserExpiry = (userId: number) =>
+  api.post(`/api/auth/admin/reset-expiry/${userId}`);
+
 
 export default api;

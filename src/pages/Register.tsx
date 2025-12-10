@@ -10,7 +10,7 @@ const Register = () => {
     sms_api_url: "",
     sms_api_token: "",
     sms_sender_id: "",
-    sms_quota: 1000000,
+    sms_quota: 100000,
     company_type: "",
   });
 

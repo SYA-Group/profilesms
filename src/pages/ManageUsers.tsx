@@ -11,6 +11,7 @@ import {
   Users,
   PauseCircle,
   PlayCircle,
+  CalendarClock,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -20,6 +21,7 @@ import {
   resetUserPassword,
   suspendUser,
   topupSMS,
+  resetUserExpiry,
 } from "../api";
 
 interface User {
@@ -117,6 +119,18 @@ const ManageUsers = () => {
     }
   };
 
+  const handleResetExpiry = async (id: number) => {
+    if (!window.confirm("Reset expiry date for this user?")) return;
+  
+    try {
+      await resetUserExpiry(id);
+      toast.success("Expiry date reset (1 year added)");
+      loadUsers();
+    } catch {
+      toast.error("Failed to reset expiry date");
+    }
+  };
+  
   const handleSort = (field: keyof User) => {
     if (sortField === field) {
       setSortOrder((p) => (p === "asc" ? "desc" : "asc"));
@@ -273,6 +287,7 @@ const ManageUsers = () => {
                   </th>
                   <th className="p-4 text-center font-semibold">Admin</th>
                   <th className="p-4 text-center font-semibold">Suspended</th>
+                  
                   <th className="p-4 text-center font-semibold">Actions</th>
                 </tr>
               </thead>
@@ -401,7 +416,20 @@ const ManageUsers = () => {
                           Active
                         </span>
                       )}
+
+
                     </td>
+                    <td>
+                    <button
+                    onClick={() => handleResetExpiry(u.id)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg transition"
+                    title="renew (1 year)"
+                  >
+                    <CalendarClock size={18} />
+                  </button>
+
+                    </td>
+                    
 
                     {/* Actions */}
                     <td className="p-4 text-center flex justify-center gap-2">

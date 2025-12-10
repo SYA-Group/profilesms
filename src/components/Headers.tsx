@@ -16,6 +16,7 @@ interface UserInfo {
   email?: string;
   sms_sender_id: string;
   sms_quota: number;
+  expires_at?: Date;
 }
 
 const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
@@ -56,6 +57,13 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
       setLoading(false);
     }
   };
+  const expiresAt = userInfo?.expires_at
+  ? new Date(userInfo.expires_at).getTime()
+  : null;
+
+const remainingDays = expiresAt
+  ? Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24))
+  : null;
 
   // Fetch notifications every 10 seconds
   useEffect(() => {
@@ -157,6 +165,14 @@ const Headers = ({ toggleSidebar, onRefreshUser }: HeaderProps) => {
           </div>
         )}
       </div>
+      {remainingDays !== null && (
+  <span className={`text-sm font-semibold ${
+    remainingDays <= 7 ? "text-red-600 animate-pulse" : "text-green-600"
+  }`}>
+    {remainingDays} days left
+  </span>
+)}
+
 
       {/* RIGHT */}
       <div className="flex items-center gap-4" ref={dropdownRef}>

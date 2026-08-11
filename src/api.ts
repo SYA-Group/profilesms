@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = "https://profilesms.duckdns.org:5001/api";
+const API_URL = "https://profilesms.duckdns.org:5443/api";
 
 const api = axios.create({
   baseURL: API_URL,

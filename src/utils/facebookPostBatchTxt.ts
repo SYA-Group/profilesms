@@ -216,7 +216,7 @@ export function truncateProfileUrlDisplay(url: string, max = 48): string {
   return `${stripped.slice(0, max - 1)}…`;
 }
 
-/** Map durable backend result row → table row shape (no phone enrichment). */
+/** Map durable backend result row → table row shape (Phase 1E phone when present). */
 export function mapBatchApiResultToRow(r: {
   id?: number | string;
   author_name?: string | null;
@@ -226,6 +226,7 @@ export function mapBatchApiResultToRow(r: {
   comment_text?: string | null;
   comment_created_at?: string | null;
   created_at?: string | null;
+  phone?: string | null;
 }): {
   id: number;
   name: string;
@@ -242,6 +243,7 @@ export function mapBatchApiResultToRow(r: {
     String(r.author_name || "").trim() ||
     String(r.facebook_author_id || "").trim() ||
     "Unknown";
+  const phone = String(r.phone || "").trim();
   return {
     id: Number(r.id),
     name,
@@ -249,8 +251,21 @@ export function mapBatchApiResultToRow(r: {
     profileUrlDisplay: truncateProfileUrlDisplay(profileUrl),
     avatarUrl: String(r.author_avatar_url || "").trim(),
     comment: String(r.comment_text || ""),
-    phone: "",
+    phone,
     status: "completed",
     updated: String(r.comment_created_at || r.created_at || ""),
   };
+}
+
+/** WhatsApp wa.me digits from E.164 / international phone (no +). */
+export function whatsappDigitsFromPhone(phone: string): string | null {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  if (digits.startsWith("0")) return null;
+  return digits;
+}
+
+export function whatsappHrefFromPhone(phone: string): string | null {
+  const d = whatsappDigitsFromPhone(phone);
+  return d ? `https://wa.me/${d}` : null;
 }

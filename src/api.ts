@@ -539,11 +539,35 @@ export const getFacebookPostBatch = async (batchId: number | string) => {
   return res.data;
 };
 
-/** Owner JWT — durable link results for one batch (W4-F2, read-only). */
+/** Owner JWT — durable link results for one batch (W4-F2 / 1E-A). */
 export const getFacebookPostBatchResults = async (
+  batchId: number | string,
+  opts?: { phoneOnly?: boolean }
+) => {
+  const params =
+    opts?.phoneOnly === true ? { phone_only: 1 } : undefined;
+  const res = await api.get(`/facebook-post-batches/${batchId}/results`, {
+    params,
+  });
+  return res.data;
+};
+
+/** Queue phone enrichment (requires Redis/Celery). May return 503. */
+export const startFacebookPostBatchPhoneEnrichment = async (
   batchId: number | string
 ) => {
-  const res = await api.get(`/facebook-post-batches/${batchId}/results`);
+  const res = await api.post(
+    `/facebook-post-batches/${batchId}/enrich-phones`
+  );
+  return res.data;
+};
+
+export const getFacebookPostBatchPhoneEnrichmentStatus = async (
+  batchId: number | string
+) => {
+  const res = await api.get(
+    `/facebook-post-batches/${batchId}/enrich-phones/status`
+  );
   return res.data;
 };
 

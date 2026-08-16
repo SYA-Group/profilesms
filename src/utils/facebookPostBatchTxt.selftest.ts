@@ -10,6 +10,7 @@ import {
   pickActiveBatch,
   validateBeforeCreateBatch,
   validateCommentsPerPost,
+  whatsappHrefFromPhone,
 } from "./facebookPostBatchTxt";
 import { USE_MOCK_EXTRACTION_RESULTS } from "./facebookPostsMockData";
 
@@ -99,14 +100,33 @@ function run() {
     comment_text: "hello world",
     comment_created_at: "2024-01-02 03:04:05",
     created_at: "2024-01-02 04:00:00",
+    phone: "+966501234567",
   });
   assert(mapped.id === 42, "map id");
   assert(mapped.name === "Alice", "map name");
   assert(mapped.comment === "hello world", "map comment");
-  assert(mapped.phone === "", "no fake phone");
+  assert(mapped.phone === "+966501234567", "intl phone mapped");
   assert(mapped.status === "completed", "row status completed");
   assert(mapped.profileUrl.includes("facebook.com"), "map profile");
   assert(mapped.updated.includes("2024"), "map updated");
+
+  assert(
+    whatsappHrefFromPhone("+4915212345678") === "https://wa.me/4915212345678",
+    "wa.de"
+  );
+  assert(
+    whatsappHrefFromPhone("+971501234567") === "https://wa.me/971501234567",
+    "wa.ae"
+  );
+  assert(whatsappHrefFromPhone("01012345678") === null, "no local 0 wa");
+  assert(whatsappHrefFromPhone("") === null, "no empty wa");
+
+  // phone-only UI: rows without phone excluded
+  const mixed = [
+    mapBatchApiResultToRow({ id: 1, phone: "+201012345678", comment_text: "a" }),
+    mapBatchApiResultToRow({ id: 2, phone: "", comment_text: "b" }),
+  ].filter((r) => Boolean(r.phone));
+  assert(mixed.length === 1 && mixed[0].id === 1, "phone-only filter");
 
   // Simulated: new queued batch shows 0 results (no bleed from prior 543)
   const priorCount = 543;

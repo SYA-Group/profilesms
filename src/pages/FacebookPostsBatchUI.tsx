@@ -25,6 +25,7 @@ import {
   parseFacebookLinksTxt,
   pickActiveBatch,
   validateBeforeCreateBatch,
+  whatsappHrefFromPhone,
   type FacebookPostBatchSummary,
 } from "../utils/facebookPostBatchTxt";
 import {
@@ -141,10 +142,16 @@ export function FacebookPostsBatchUI() {
   }, [activeBatch?.batch_id]);
 
   const loadBatchResults = useCallback(async (batchId: number) => {
-    const data = await getFacebookPostBatchResults(batchId);
+    // Final Results = phone_only international rows (Phase 1E-A)
+    const data = await getFacebookPostBatchResults(batchId, {
+      phoneOnly: true,
+    });
     if (!mounted.current) return;
     if (activeBatchIdRef.current !== batchId) return;
-    setResultRows(toTableRows(data?.results || []));
+    const rows = toTableRows(data?.results || []).filter((r) =>
+      Boolean(String(r.phone || "").trim())
+    );
+    setResultRows(rows);
   }, []);
 
   const refreshActiveBatch = useCallback(
@@ -387,13 +394,16 @@ export function FacebookPostsBatchUI() {
   };
 
   const handleExportExcel = async () => {
-    if (total === 0) {
-      toast.error("No results to export.");
+    const exportRows = displayRows.filter((r) =>
+      Boolean(String(r.phone || "").trim())
+    );
+    if (exportRows.length === 0) {
+      toast.error("No results with phone numbers to export.");
       return;
     }
     try {
       const meta = await exportFacebookResultsExcel(
-        displayRows.map((r) => ({
+        exportRows.map((r) => ({
           id: r.id,
           name: r.name,
           profileUrl: r.profileUrl,
@@ -839,7 +849,22 @@ export function FacebookPostsBatchUI() {
                         </td>
                         <td className="px-3 py-3 align-middle whitespace-nowrap">
                           <div className="inline-flex items-center gap-2">
-                            <WhatsAppIcon />
+                            {(() => {
+                              const wa = whatsappHrefFromPhone(row.phone);
+                              if (!wa) return null;
+                              return (
+                                <a
+                                  href={wa}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={`WhatsApp ${row.phone}`}
+                                  className="shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <WhatsAppIcon />
+                                </a>
+                              );
+                            })()}
                             <span
                               className="tabular-nums"
                               style={{ color: THEME.text }}

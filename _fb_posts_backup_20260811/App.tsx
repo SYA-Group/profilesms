@@ -19,7 +19,6 @@ import Pricing from "./pages/Pricing";
 import ElasticSearch from "./pages/ElasticSearch";
 import PricingAdmin from "./pages/PricingAdmin";
 import LeadRegister from "./pages/LeadRegister";
-import FacebookPosts from "./pages/FacebookPosts";
 import Cookies from "js-cookie";
 import Suspended from "./pages/Suspended";
 const App = () => {
@@ -146,16 +145,6 @@ const App = () => {
     <ProtectedRoute>
       <Layout>
       <ElasticSearch/>
-      </Layout>
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/facebook-posts"
-  element={
-    <ProtectedRoute>
-      <Layout>
-        <FacebookPosts />
       </Layout>
     </ProtectedRoute>
   }

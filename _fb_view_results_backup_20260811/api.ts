@@ -510,40 +510,4 @@ export const getFacebookPostJobResults = async (jobId: number | string) => {
   return res.data;
 };
 
-export const bulkDeleteFacebookPostJobs = async (jobIds: number[]) => {
-  const res = await api.post("/facebook-post-jobs/bulk-delete", {
-    job_ids: jobIds,
-  });
-  return res.data;
-};
-
-// =====================================================
-// Facebook Post Batches (Phase 1B — queued create only)
-// =====================================================
-
-export const createFacebookPostBatch = async (data: {
-  links: string[];
-  requested_count: number;
-}) => {
-  const res = await api.post("/facebook-post-batches", data);
-  return res.data;
-};
-
-export const listFacebookPostBatches = async () => {
-  const res = await api.get("/facebook-post-batches");
-  return res.data;
-};
-
-export const getFacebookPostBatch = async (batchId: number | string) => {
-  const res = await api.get(`/facebook-post-batches/${batchId}`);
-  return res.data;
-};
-
-export const requestFacebookPostBatchHandoff = async (
-  batchId: number | string
-) => {
-  const res = await api.post(`/facebook-post-batches/${batchId}/handoff`);
-  return res.data;
-};
-
 export default api;

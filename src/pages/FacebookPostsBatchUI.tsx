@@ -1,7 +1,7 @@
 /**
- * Phase 1B — Real TXT upload + create queued Batch UI.
+ * Phase 1B / W4-F2 — Real TXT upload + Batch UI with durable backend results.
  * Same visual design as the Extraction Results mock screen.
- * No v73 / extension communication.
+ * No v73 / extension engine edits in this phase.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
@@ -11,13 +11,17 @@ import axios from "axios";
 import {
   createFacebookPostBatch,
   getFacebookPostBatch,
+  getFacebookPostBatchResults,
   listFacebookPostBatches,
   requestFacebookPostBatchHandoff,
 } from "../api";
 import {
   BATCH_RESULTS_PAGE_SIZE,
+  BATCH_RESULTS_POLL_MS,
   MAX_TXT_BYTES,
+  isBatchPollActiveStatus,
   isTxtFile,
+  mapBatchApiResultToRow,
   parseFacebookLinksTxt,
   pickActiveBatch,
   validateBeforeCreateBatch,
@@ -42,6 +46,25 @@ const THEME = {
   primaryHover: "#1D4ED8",
   headerBg: "#F8FAFC",
 } as const;
+
+const AVATAR_PLACEHOLDER =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect fill="#E2E8F0" width="40" height="40"/><circle cx="20" cy="16" r="8" fill="#94A3B8"/><ellipse cx="20" cy="34" rx="12" ry="8" fill="#94A3B8"/></svg>`
+  );
+
+function toTableRows(apiResults: unknown[]): MockExtractionResult[] {
+  if (!Array.isArray(apiResults)) return [];
+  return apiResults.map((raw) => {
+    const mapped = mapBatchApiResultToRow(
+      (raw || {}) as Parameters<typeof mapBatchApiResultToRow>[0]
+    );
+    return {
+      ...mapped,
+      avatarUrl: mapped.avatarUrl || AVATAR_PLACEHOLDER,
+    };
+  });
+}
 
 function statusStyles(status: string): { background: string; color: string } {
   switch (status) {
@@ -94,12 +117,13 @@ export function FacebookPostsBatchUI() {
   const [activeBatch, setActiveBatch] = useState<FacebookPostBatchSummary | null>(
     null
   );
-  /** Real mode results are always empty until later ingestion phases. */
+  /** Real mode: durable backend results for the selected batch (never mock). */
   const [resultRows, setResultRows] = useState<MockExtractionResult[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const submitLockRef = useRef(false);
   const mounted = useRef(true);
+  const activeBatchIdRef = useRef<number | null>(null);
 
   const displayRows = useMock ? MOCK_EXTRACTION_RESULTS : resultRows;
   const total = displayRows.length;
@@ -111,6 +135,46 @@ export function FacebookPostsBatchUI() {
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    activeBatchIdRef.current = activeBatch?.batch_id ?? null;
+  }, [activeBatch?.batch_id]);
+
+  const loadBatchResults = useCallback(async (batchId: number) => {
+    const data = await getFacebookPostBatchResults(batchId);
+    if (!mounted.current) return;
+    if (activeBatchIdRef.current !== batchId) return;
+    setResultRows(toTableRows(data?.results || []));
+  }, []);
+
+  const refreshActiveBatch = useCallback(
+    async (batchId: number) => {
+      try {
+        const detail = await getFacebookPostBatch(batchId);
+        if (!mounted.current) return;
+        if (activeBatchIdRef.current !== batchId) return;
+        const batch = detail?.batch;
+        if (batch) {
+          setActiveBatch({
+            batch_id: Number(batch.batch_id),
+            status: String(batch.status || ""),
+            total_links: Number(batch.total_links || 0),
+            requested_count: Number(batch.requested_count || 0),
+            created_at: batch.created_at || null,
+            updated_at: batch.updated_at || null,
+          });
+        }
+      } catch {
+        /* keep prior status */
+      }
+      try {
+        await loadBatchResults(batchId);
+      } catch {
+        /* keep prior rows */
+      }
+    },
+    [loadBatchResults]
+  );
 
   const restoreOwnBatch = useCallback(async () => {
     if (useMock) return;
@@ -130,34 +194,37 @@ export function FacebookPostsBatchUI() {
       const picked = pickActiveBatch(batches);
       setActiveBatch(picked);
       if (picked?.batch_id) {
-        try {
-          const detail = await getFacebookPostBatch(picked.batch_id);
-          if (!mounted.current) return;
-          const batch = detail?.batch;
-          if (batch) {
-            setActiveBatch({
-              batch_id: Number(batch.batch_id),
-              status: String(batch.status || picked.status),
-              total_links: Number(batch.total_links || picked.total_links),
-              requested_count: Number(
-                batch.requested_count || picked.requested_count
-              ),
-              created_at: batch.created_at || null,
-              updated_at: batch.updated_at || null,
-            });
-          }
-        } catch {
-          /* list data is enough */
-        }
+        await refreshActiveBatch(picked.batch_id);
+      } else {
+        setResultRows([]);
       }
     } catch {
       /* keep local state on refresh failure */
     }
-  }, [useMock]);
+  }, [useMock, refreshActiveBatch]);
 
   useEffect(() => {
     restoreOwnBatch();
   }, [restoreOwnBatch]);
+
+  /** Live polling while queued/running — read-only GETs only. */
+  useEffect(() => {
+    if (useMock) return;
+    const batchId = activeBatch?.batch_id;
+    const status = activeBatch?.status;
+    if (!batchId || !isBatchPollActiveStatus(status)) return;
+
+    const tick = () => {
+      void refreshActiveBatch(batchId);
+    };
+    const id = window.setInterval(tick, BATCH_RESULTS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [
+    useMock,
+    activeBatch?.batch_id,
+    activeBatch?.status,
+    refreshActiveBatch,
+  ]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -370,9 +437,11 @@ export function FacebookPostsBatchUI() {
 
   const batchInfo =
     !useMock && activeBatch
-      ? `${activeBatch.total_links} link${
+      ? `Batch #${activeBatch.batch_id} · ${activeBatch.total_links} link${
           activeBatch.total_links === 1 ? "" : "s"
-        } ${activeBatch.status === "queued" ? "queued" : activeBatch.status}`
+        } · ${activeBatch.status}${
+          !useMock ? ` · ${total} result${total === 1 ? "" : "s"}` : ""
+        }`
       : null;
 
   return (
@@ -704,13 +773,19 @@ export function FacebookPostsBatchUI() {
                         <td className="px-3 py-3 align-middle">
                           <div className="flex items-center gap-3 min-w-0">
                             <img
-                              src={row.avatarUrl}
+                              src={row.avatarUrl || AVATAR_PLACEHOLDER}
                               alt=""
                               width={40}
                               height={40}
                               className="h-10 w-10 rounded-full object-cover shrink-0 border"
                               style={{ borderColor: THEME.border }}
                               loading="lazy"
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                if (el.src !== AVATAR_PLACEHOLDER) {
+                                  el.src = AVATAR_PLACEHOLDER;
+                                }
+                              }}
                             />
                             <div className="min-w-0 flex-1">
                               <div

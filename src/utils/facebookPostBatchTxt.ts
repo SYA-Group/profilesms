@@ -6,7 +6,9 @@
 
 export const MAX_BATCH_LINKS = 500;
 export const MAX_TXT_BYTES = 5 * 1024 * 1024;
-export const BATCH_RESULTS_PAGE_SIZE = 20;
+export const BATCH_RESULTS_PAGE_SIZE = 10;
+/** Live poll while batch is queued/running (read-only GETs). */
+export const BATCH_RESULTS_POLL_MS = 3000;
 
 const ALLOWED_FACEBOOK_HOSTS = new Set([
   "facebook.com",
@@ -170,7 +172,25 @@ export interface FacebookPostBatchSummary {
   updated_at?: string | null;
 }
 
-/** Prefer running, else newest queued from list (newest-first from API). */
+const TERMINAL_BATCH_STATUSES = new Set([
+  "partial",
+  "completed",
+  "failed",
+]);
+
+export function isBatchPollActiveStatus(status: string | null | undefined): boolean {
+  const s = String(status || "").toLowerCase();
+  return s === "running" || s === "queued" || s === "pending";
+}
+
+export function isBatchTerminalStatus(status: string | null | undefined): boolean {
+  return TERMINAL_BATCH_STATUSES.has(String(status || "").toLowerCase());
+}
+
+/**
+ * Prefer running, else queued, else pending, else newest terminal
+ * (partial / completed / failed). List is typically newest-first; tie-break by id.
+ */
 export function pickActiveBatch(
   batches: FacebookPostBatchSummary[]
 ): FacebookPostBatchSummary | null {
@@ -179,5 +199,56 @@ export function pickActiveBatch(
   if (running) return running;
   const queued = batches.find((b) => b.status === "queued");
   if (queued) return queued;
-  return null;
+  const pending = batches.find((b) => b.status === "pending");
+  if (pending) return pending;
+  const terminals = batches.filter((b) => isBatchTerminalStatus(b.status));
+  if (terminals.length === 0) return null;
+  return [...terminals].sort((a, b) => b.batch_id - a.batch_id)[0];
+}
+
+export function truncateProfileUrlDisplay(url: string, max = 48): string {
+  const raw = String(url || "").trim();
+  if (!raw) return "—";
+  const stripped = raw.replace(/^https?:\/\/(www\.)?/i, "");
+  if (stripped.length <= max) return stripped;
+  return `${stripped.slice(0, max - 1)}…`;
+}
+
+/** Map durable backend result row → table row shape (no phone enrichment). */
+export function mapBatchApiResultToRow(r: {
+  id?: number | string;
+  author_name?: string | null;
+  facebook_author_id?: string | null;
+  author_profile_url?: string | null;
+  author_avatar_url?: string | null;
+  comment_text?: string | null;
+  comment_created_at?: string | null;
+  created_at?: string | null;
+}): {
+  id: number;
+  name: string;
+  profileUrl: string;
+  profileUrlDisplay: string;
+  avatarUrl: string;
+  comment: string;
+  phone: string;
+  status: "completed";
+  updated: string;
+} {
+  const profileUrl = String(r.author_profile_url || "").trim();
+  const name =
+    String(r.author_name || "").trim() ||
+    String(r.facebook_author_id || "").trim() ||
+    "Unknown";
+  return {
+    id: Number(r.id),
+    name,
+    profileUrl: profileUrl || "#",
+    profileUrlDisplay: truncateProfileUrlDisplay(profileUrl),
+    avatarUrl: String(r.author_avatar_url || "").trim(),
+    comment: String(r.comment_text || ""),
+    phone: "",
+    status: "completed",
+    updated: String(r.comment_created_at || r.created_at || ""),
+  };
 }

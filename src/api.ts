@@ -539,6 +539,14 @@ export const getFacebookPostBatch = async (batchId: number | string) => {
   return res.data;
 };
 
+/** Owner JWT — durable link results for one batch (W4-F2, read-only). */
+export const getFacebookPostBatchResults = async (
+  batchId: number | string
+) => {
+  const res = await api.get(`/facebook-post-batches/${batchId}/results`);
+  return res.data;
+};
+
 export const requestFacebookPostBatchHandoff = async (
   batchId: number | string
 ) => {

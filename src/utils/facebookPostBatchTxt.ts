@@ -180,7 +180,7 @@ const TERMINAL_BATCH_STATUSES = new Set([
 
 export function isBatchPollActiveStatus(status: string | null | undefined): boolean {
   const s = String(status || "").toLowerCase();
-  return s === "running" || s === "queued" || s === "pending";
+  return s === "running" || s === "queued";
 }
 
 export function isBatchTerminalStatus(status: string | null | undefined): boolean {
@@ -188,8 +188,9 @@ export function isBatchTerminalStatus(status: string | null | undefined): boolea
 }
 
 /**
- * Prefer running, else queued, else pending, else newest terminal
+ * Prefer running, else queued, else newest terminal
  * (partial / completed / failed). List is typically newest-first; tie-break by id.
+ * Do not prefer stale "pending" over a newer/older terminal batch with real results.
  */
 export function pickActiveBatch(
   batches: FacebookPostBatchSummary[]
@@ -199,11 +200,12 @@ export function pickActiveBatch(
   if (running) return running;
   const queued = batches.find((b) => b.status === "queued");
   if (queued) return queued;
-  const pending = batches.find((b) => b.status === "pending");
-  if (pending) return pending;
   const terminals = batches.filter((b) => isBatchTerminalStatus(b.status));
-  if (terminals.length === 0) return null;
-  return [...terminals].sort((a, b) => b.batch_id - a.batch_id)[0];
+  if (terminals.length > 0) {
+    return [...terminals].sort((a, b) => b.batch_id - a.batch_id)[0];
+  }
+  // Last resort: newest non-empty status batch (e.g. orphan pending only)
+  return [...batches].sort((a, b) => b.batch_id - a.batch_id)[0];
 }
 
 export function truncateProfileUrlDisplay(url: string, max = 48): string {

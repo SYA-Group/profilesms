@@ -69,6 +69,13 @@ function run() {
   );
   assert(
     pickActiveBatch([
+      { batch_id: 518, status: "pending", total_links: 2, requested_count: 100 },
+      { batch_id: 519, status: "partial", total_links: 2, requested_count: 100 },
+    ])?.batch_id === 519,
+    "pending must not hide partial 519"
+  );
+  assert(
+    pickActiveBatch([
       { batch_id: 521, status: "queued", total_links: 1, requested_count: 1 },
       { batch_id: 519, status: "partial", total_links: 2, requested_count: 100 },
     ])?.batch_id === 521,
@@ -77,6 +84,7 @@ function run() {
 
   assert(isBatchPollActiveStatus("running"), "poll running");
   assert(isBatchPollActiveStatus("queued"), "poll queued");
+  assert(!isBatchPollActiveStatus("pending"), "no poll pending");
   assert(!isBatchPollActiveStatus("partial"), "no poll partial");
   assert(!isBatchPollActiveStatus("completed"), "no poll completed");
   assert(!isBatchPollActiveStatus("failed"), "no poll failed");

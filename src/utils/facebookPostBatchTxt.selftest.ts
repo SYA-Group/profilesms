@@ -12,6 +12,7 @@ import {
   validateCommentsPerPost,
   whatsappHrefFromPhone,
 } from "./facebookPostBatchTxt";
+import { calcTotalPages } from "./facebookPostBatchPagination";
 import { USE_MOCK_EXTRACTION_RESULTS } from "./facebookPostsMockData";
 
 function assert(cond: boolean, msg: string) {
@@ -137,6 +138,7 @@ function run() {
   const total = 543;
   const pages = Math.ceil(total / BATCH_RESULTS_PAGE_SIZE);
   assert(pages === 55, "543/10 pages");
+  assert(calcTotalPages(538, 10) === 54, "538/10 pages regression");
   assert(MAX_BATCH_LINKS === 500, "max links");
 
   console.log("facebookPostBatchTxt.selftest: ALL PASS");

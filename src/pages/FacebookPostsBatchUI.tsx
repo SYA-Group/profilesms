@@ -29,6 +29,14 @@ import {
   type FacebookPostBatchSummary,
 } from "../utils/facebookPostBatchTxt";
 import {
+  BATCH_RESULTS_PAGE_SIZE_OPTIONS,
+  calcTotalPages,
+  getWindowedPageNumbers,
+  pageRange,
+  slicePageRows,
+  type BatchResultsPageSize,
+} from "../utils/facebookPostBatchPagination";
+import {
   MOCK_EXTRACTION_RESULTS,
   USE_MOCK_EXTRACTION_RESULTS,
   type MockExtractionResult,
@@ -111,6 +119,9 @@ export function FacebookPostsBatchUI() {
 
   const [commentsPerPost, setCommentsPerPost] = useState("100");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<BatchResultsPageSize>(
+    BATCH_RESULTS_PAGE_SIZE
+  );
   const [fileName, setFileName] = useState<string | null>(null);
   const [parsedLinks, setParsedLinks] = useState<string[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -128,7 +139,7 @@ export function FacebookPostsBatchUI() {
 
   const displayRows = useMock ? MOCK_EXTRACTION_RESULTS : resultRows;
   const total = displayRows.length;
-  const totalPages = Math.max(1, Math.ceil(total / BATCH_RESULTS_PAGE_SIZE) || 1);
+  const totalPages = calcTotalPages(total, pageSize);
 
   useEffect(() => {
     mounted.current = true;
@@ -237,18 +248,17 @@ export function FacebookPostsBatchUI() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const pageRows = useMemo(() => {
-    const start = (page - 1) * BATCH_RESULTS_PAGE_SIZE;
-    return displayRows.slice(start, start + BATCH_RESULTS_PAGE_SIZE);
-  }, [page, displayRows]);
+  const pageRows = useMemo(
+    () => slicePageRows(displayRows, page, pageSize),
+    [page, pageSize, displayRows]
+  );
 
-  const rangeStart = total === 0 ? 0 : (page - 1) * BATCH_RESULTS_PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * BATCH_RESULTS_PAGE_SIZE, total);
+  const { start: rangeStart, end: rangeEnd } = pageRange(total, page, pageSize);
 
-  const pageNumbers = useMemo(() => {
-    if (total === 0) return [] as number[];
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }, [totalPages, total]);
+  const pageNumbers = useMemo(
+    () => getWindowedPageNumbers(page, totalPages, 7),
+    [page, totalPages]
+  );
 
   const applyFile = async (file: File | null | undefined) => {
     if (!file) return;
@@ -650,7 +660,7 @@ export function FacebookPostsBatchUI() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="rounded-2xl border shadow-sm overflow-hidden max-w-7xl mx-auto"
+        className="rounded-2xl border shadow-sm max-w-7xl mx-auto"
         style={{
           background: THEME.cardBg,
           borderColor: THEME.border,
@@ -903,18 +913,43 @@ export function FacebookPostsBatchUI() {
             >
               <div className="text-sm" style={{ color: THEME.secondary }}>
                 Showing {rangeStart} to {rangeEnd} of {total} results
+                {totalPages > 1 ? (
+                  <span className="ml-2 tabular-nums">
+                    (Page {page} of {totalPages})
+                  </span>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <span
-                  className="text-xs font-medium px-2.5 py-1 rounded-md border"
-                  style={{
-                    borderColor: THEME.border,
-                    color: THEME.secondary,
-                  }}
+                <label
+                  className="inline-flex items-center gap-2 text-xs font-medium"
+                  style={{ color: THEME.secondary }}
                 >
-                  {BATCH_RESULTS_PAGE_SIZE} / page
-                </span>
-                <div className="flex items-center gap-1">
+                  <span>Per page</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      const next = Number(
+                        e.target.value
+                      ) as BatchResultsPageSize;
+                      setPageSize(next);
+                      setPage(1);
+                    }}
+                    className="rounded-md border px-2 py-1 text-xs font-medium outline-none focus:ring-2 focus:ring-blue-500/40"
+                    style={{
+                      borderColor: THEME.border,
+                      color: THEME.text,
+                      background: THEME.cardBg,
+                    }}
+                    aria-label="Results per page"
+                  >
+                    {BATCH_RESULTS_PAGE_SIZE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-center gap-1 flex-wrap">
                   <button
                     type="button"
                     disabled={page <= 1}
@@ -928,6 +963,30 @@ export function FacebookPostsBatchUI() {
                   >
                     Previous
                   </button>
+                  {pageNumbers[0] > 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setPage(1)}
+                        className="min-w-[32px] px-2 py-1.5 rounded-md text-xs font-medium border"
+                        style={{
+                          borderColor: THEME.border,
+                          background: THEME.cardBg,
+                          color: THEME.text,
+                        }}
+                      >
+                        1
+                      </button>
+                      {pageNumbers[0] > 2 ? (
+                        <span
+                          className="px-1 text-xs"
+                          style={{ color: THEME.secondary }}
+                        >
+                          …
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
                   {pageNumbers.map((n) => (
                     <button
                       key={n}
@@ -951,6 +1010,30 @@ export function FacebookPostsBatchUI() {
                       {n}
                     </button>
                   ))}
+                  {pageNumbers[pageNumbers.length - 1] < totalPages ? (
+                    <>
+                      {pageNumbers[pageNumbers.length - 1] < totalPages - 1 ? (
+                        <span
+                          className="px-1 text-xs"
+                          style={{ color: THEME.secondary }}
+                        >
+                          …
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setPage(totalPages)}
+                        className="min-w-[32px] px-2 py-1.5 rounded-md text-xs font-medium border"
+                        style={{
+                          borderColor: THEME.border,
+                          background: THEME.cardBg,
+                          color: THEME.text,
+                        }}
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     disabled={page >= totalPages}

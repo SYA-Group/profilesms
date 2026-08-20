@@ -9,25 +9,33 @@ import toast from "react-hot-toast";
 import { Download, ExternalLink, Facebook, Upload } from "lucide-react";
 import axios from "axios";
 import {
-  createFacebookPostBatch,
-  getFacebookPostBatch,
-  getFacebookPostBatchResults,
-  listFacebookPostBatches,
-  requestFacebookPostBatchHandoff,
-} from "../api";
-import {
   BATCH_RESULTS_PAGE_SIZE,
   BATCH_RESULTS_POLL_MS,
   MAX_TXT_BYTES,
+  POST_TERMINAL_POLL_MAX_MS,
+  POST_TERMINAL_RESULTS_POLL_MS,
+  POST_TERMINAL_STABLE_POLLS,
+  isActiveToTerminalTransition,
   isBatchPollActiveStatus,
+  isBatchTerminalStatus,
+  isEnrichmentActiveStatus,
   isTxtFile,
   mapBatchApiResultToRow,
   parseFacebookLinksTxt,
   pickActiveBatch,
+  shouldContinuePostTerminalPoll,
   validateBeforeCreateBatch,
   whatsappHrefFromPhone,
   type FacebookPostBatchSummary,
 } from "../utils/facebookPostBatchTxt";
+import {
+  createFacebookPostBatch,
+  getFacebookPostBatch,
+  getFacebookPostBatchPhoneEnrichmentStatus,
+  getFacebookPostBatchResults,
+  listFacebookPostBatches,
+  requestFacebookPostBatchHandoff,
+} from "../api";
 import {
   BATCH_RESULTS_PAGE_SIZE_OPTIONS,
   calcTotalPages,
@@ -136,6 +144,8 @@ export function FacebookPostsBatchUI() {
   const submitLockRef = useRef(false);
   const mounted = useRef(true);
   const activeBatchIdRef = useRef<number | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const prevBatchStatusRef = useRef<string | null>(null);
 
   const displayRows = useMock ? MOCK_EXTRACTION_RESULTS : resultRows;
   const total = displayRows.length;
@@ -157,20 +167,21 @@ export function FacebookPostsBatchUI() {
     const data = await getFacebookPostBatchResults(batchId, {
       phoneOnly: true,
     });
-    if (!mounted.current) return;
-    if (activeBatchIdRef.current !== batchId) return;
+    if (!mounted.current) return 0;
+    if (activeBatchIdRef.current !== batchId) return 0;
     const rows = toTableRows(data?.results || []).filter((r) =>
       Boolean(String(r.phone || "").trim())
     );
     setResultRows(rows);
+    return rows.length;
   }, []);
 
   const refreshActiveBatch = useCallback(
-    async (batchId: number) => {
+    async (batchId: number): Promise<number> => {
       try {
         const detail = await getFacebookPostBatch(batchId);
-        if (!mounted.current) return;
-        if (activeBatchIdRef.current !== batchId) return;
+        if (!mounted.current) return 0;
+        if (activeBatchIdRef.current !== batchId) return 0;
         const batch = detail?.batch;
         if (batch) {
           setActiveBatch({
@@ -186,12 +197,27 @@ export function FacebookPostsBatchUI() {
         /* keep prior status */
       }
       try {
-        await loadBatchResults(batchId);
+        return await loadBatchResults(batchId);
       } catch {
         /* keep prior rows */
+        return 0;
       }
     },
     [loadBatchResults]
+  );
+
+  /** Single-flight refresh — shared by interval, terminal transition, and focus. */
+  const safeRefreshActiveBatch = useCallback(
+    async (batchId: number): Promise<number> => {
+      if (!batchId || refreshInFlightRef.current) return -1;
+      refreshInFlightRef.current = true;
+      try {
+        return await refreshActiveBatch(batchId);
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    },
+    [refreshActiveBatch]
   );
 
   const restoreOwnBatch = useCallback(async () => {
@@ -212,14 +238,14 @@ export function FacebookPostsBatchUI() {
       const picked = pickActiveBatch(batches);
       setActiveBatch(picked);
       if (picked?.batch_id) {
-        await refreshActiveBatch(picked.batch_id);
+        await safeRefreshActiveBatch(picked.batch_id);
       } else {
         setResultRows([]);
       }
     } catch {
       /* keep local state on refresh failure */
     }
-  }, [useMock, refreshActiveBatch]);
+  }, [useMock, safeRefreshActiveBatch]);
 
   useEffect(() => {
     restoreOwnBatch();
@@ -233,7 +259,7 @@ export function FacebookPostsBatchUI() {
     if (!batchId || !isBatchPollActiveStatus(status)) return;
 
     const tick = () => {
-      void refreshActiveBatch(batchId);
+      void safeRefreshActiveBatch(batchId);
     };
     const id = window.setInterval(tick, BATCH_RESULTS_POLL_MS);
     return () => window.clearInterval(id);
@@ -241,8 +267,147 @@ export function FacebookPostsBatchUI() {
     useMock,
     activeBatch?.batch_id,
     activeBatch?.status,
-    refreshActiveBatch,
+    safeRefreshActiveBatch,
   ]);
+
+  /**
+   * Transition-based forced fetch: queued/running → terminal.
+   * Ensures one final GET even if the running interval is cleared.
+   */
+  useEffect(() => {
+    if (useMock) return;
+    const batchId = activeBatch?.batch_id;
+    const status = String(activeBatch?.status || "");
+    const prev = prevBatchStatusRef.current;
+    prevBatchStatusRef.current = status || null;
+    if (!batchId) return;
+    if (isActiveToTerminalTransition(prev, status)) {
+      void safeRefreshActiveBatch(batchId);
+    }
+  }, [
+    useMock,
+    activeBatch?.batch_id,
+    activeBatch?.status,
+    safeRefreshActiveBatch,
+  ]);
+
+  /**
+   * Post-terminal phone_only polling (completed/partial) until enrichment settles
+   * or bounded stable-count / 60s max. failed → no extra poll (forced fetch only).
+   */
+  useEffect(() => {
+    if (useMock) return;
+    const batchId = activeBatch?.batch_id;
+    const status = String(activeBatch?.status || "").toLowerCase();
+    if (!batchId || !isBatchTerminalStatus(status) || status === "failed") {
+      return;
+    }
+
+    let cancelled = false;
+    const startedAt = Date.now();
+    let stablePolls = 0;
+    let lastCount = -1;
+    let intervalId = 0;
+
+    const stop = () => {
+      if (intervalId) window.clearInterval(intervalId);
+      intervalId = 0;
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+
+      let enrichmentStatus: string | null = null;
+      let enrichmentStatusAvailable = false;
+      try {
+        const st = await getFacebookPostBatchPhoneEnrichmentStatus(batchId);
+        enrichmentStatus = String(st?.status || "idle").toLowerCase();
+        enrichmentStatusAvailable = true;
+      } catch {
+        enrichmentStatusAvailable = false;
+      }
+      if (cancelled) return;
+
+      const count = await safeRefreshActiveBatch(batchId);
+      if (cancelled) return;
+      const resultCount = count < 0 ? lastCount : count;
+
+      if (!enrichmentStatusAvailable) {
+        if (resultCount === lastCount && resultCount > 0) {
+          stablePolls += 1;
+        } else {
+          stablePolls = 0;
+        }
+        lastCount = resultCount;
+      }
+
+      const elapsedMs = Date.now() - startedAt;
+      const cont = shouldContinuePostTerminalPoll({
+        batchStatus: status,
+        enrichmentStatus,
+        enrichmentStatusAvailable,
+        elapsedMs: elapsedMs,
+        maxMs: POST_TERMINAL_POLL_MAX_MS,
+        stablePolls,
+        resultCount: resultCount < 0 ? 0 : resultCount,
+        stablePollsNeeded: POST_TERMINAL_STABLE_POLLS,
+      });
+
+      if (
+        enrichmentStatusAvailable &&
+        !isEnrichmentActiveStatus(enrichmentStatus)
+      ) {
+        // Enrichment settled — final fetch already done in this tick.
+        stop();
+        return;
+      }
+
+      if (!cont) stop();
+    };
+
+    intervalId = window.setInterval(() => {
+      void tick();
+    }, POST_TERMINAL_RESULTS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [
+    useMock,
+    activeBatch?.batch_id,
+    activeBatch?.status,
+    safeRefreshActiveBatch,
+  ]);
+
+  /** Mobile/desktop: immediate refresh when returning to the page. */
+  useEffect(() => {
+    if (useMock) return;
+
+    const refreshIfBatch = () => {
+      const batchId = activeBatchIdRef.current;
+      if (batchId) void safeRefreshActiveBatch(batchId);
+    };
+
+    const onFocus = () => {
+      refreshIfBatch();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshIfBatch();
+    };
+    const onPageShow = () => {
+      refreshIfBatch();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [useMock, safeRefreshActiveBatch]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);

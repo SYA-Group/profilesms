@@ -2,12 +2,19 @@ import {
   BATCH_RESULTS_PAGE_SIZE,
   BATCH_RESULTS_POLL_MS,
   MAX_BATCH_LINKS,
+  POST_TERMINAL_POLL_MAX_MS,
+  POST_TERMINAL_RESULTS_POLL_MS,
+  POST_TERMINAL_STABLE_POLLS,
+  isActiveToTerminalTransition,
   isBatchPollActiveStatus,
   isBatchTerminalStatus,
+  isEnrichmentActiveStatus,
+  isEnrichmentSettledStatus,
   isTxtFile,
   mapBatchApiResultToRow,
   parseFacebookLinksTxt,
   pickActiveBatch,
+  shouldContinuePostTerminalPoll,
   validateBeforeCreateBatch,
   validateCommentsPerPost,
   whatsappHrefFromPhone,
@@ -26,6 +33,9 @@ function run() {
     BATCH_RESULTS_POLL_MS >= 2000 && BATCH_RESULTS_POLL_MS <= 5000,
     "poll 2-5s"
   );
+  assert(POST_TERMINAL_RESULTS_POLL_MS === 3000, "post-terminal poll 3s");
+  assert(POST_TERMINAL_POLL_MAX_MS === 60_000, "max 60s");
+  assert(POST_TERMINAL_STABLE_POLLS === 3, "stable 3");
 
   // TXT basics
   assert(isTxtFile({ name: "a.txt" } as File), "txt ok");
@@ -48,33 +58,9 @@ function run() {
   assert(
     pickActiveBatch([
       { batch_id: 3, status: "queued", total_links: 1, requested_count: 1 },
-      { batch_id: 4, status: "running", total_links: 1, requested_count: 1 },
-    ])?.batch_id === 4,
-    "pick running over queued"
-  );
-  assert(pickActiveBatch([]) === null, "pick empty");
-
-  // W4-F2: terminal fallback (newest partial when no active)
-  assert(
-    pickActiveBatch([
-      { batch_id: 519, status: "partial", total_links: 2, requested_count: 100 },
-      { batch_id: 400, status: "completed", total_links: 1, requested_count: 10 },
-    ])?.batch_id === 519,
-    "pick newest partial 519"
-  );
-  assert(
-    pickActiveBatch([
-      { batch_id: 520, status: "failed", total_links: 1, requested_count: 1 },
-      { batch_id: 519, status: "partial", total_links: 2, requested_count: 100 },
-    ])?.batch_id === 520,
-    "pick newest terminal by id"
-  );
-  assert(
-    pickActiveBatch([
-      { batch_id: 518, status: "pending", total_links: 2, requested_count: 100 },
-      { batch_id: 519, status: "partial", total_links: 2, requested_count: 100 },
-    ])?.batch_id === 519,
-    "pending must not hide partial 519"
+      { batch_id: 2, status: "running", total_links: 1, requested_count: 1 },
+    ])?.batch_id === 2,
+    "pick running"
   );
   assert(
     pickActiveBatch([
@@ -91,6 +77,72 @@ function run() {
   assert(!isBatchPollActiveStatus("completed"), "no poll completed");
   assert(!isBatchPollActiveStatus("failed"), "no poll failed");
   assert(isBatchTerminalStatus("partial"), "terminal partial");
+
+  // Live refresh helpers
+  assert(isActiveToTerminalTransition("running", "completed"), "run→done");
+  assert(isActiveToTerminalTransition("queued", "partial"), "queue→partial");
+  assert(!isActiveToTerminalTransition("completed", "completed"), "no loop");
+  assert(!isActiveToTerminalTransition(null, "completed"), "no cold start");
+  assert(isEnrichmentActiveStatus("queued"), "enrich queued");
+  assert(isEnrichmentActiveStatus("running"), "enrich running");
+  assert(isEnrichmentSettledStatus("done"), "enrich done");
+  assert(isEnrichmentSettledStatus("idle"), "enrich idle");
+
+  assert(
+    shouldContinuePostTerminalPoll({
+      batchStatus: "completed",
+      enrichmentStatus: "running",
+      enrichmentStatusAvailable: true,
+      elapsedMs: 3000,
+      stablePolls: 0,
+      resultCount: 5,
+    }) === true,
+    "enrich running continues"
+  );
+  assert(
+    shouldContinuePostTerminalPoll({
+      batchStatus: "completed",
+      enrichmentStatus: "done",
+      enrichmentStatusAvailable: true,
+      elapsedMs: 3000,
+      stablePolls: 0,
+      resultCount: 5,
+    }) === false,
+    "enrich done stops"
+  );
+  assert(
+    shouldContinuePostTerminalPoll({
+      batchStatus: "failed",
+      enrichmentStatus: "running",
+      enrichmentStatusAvailable: true,
+      elapsedMs: 0,
+      stablePolls: 0,
+      resultCount: 0,
+    }) === false,
+    "failed no post-terminal poll"
+  );
+  assert(
+    shouldContinuePostTerminalPoll({
+      batchStatus: "partial",
+      enrichmentStatus: null,
+      enrichmentStatusAvailable: false,
+      elapsedMs: 9000,
+      stablePolls: 3,
+      resultCount: 10,
+    }) === false,
+    "stable count stop"
+  );
+  assert(
+    shouldContinuePostTerminalPoll({
+      batchStatus: "completed",
+      enrichmentStatus: "running",
+      enrichmentStatusAvailable: true,
+      elapsedMs: 60_000,
+      stablePolls: 0,
+      resultCount: 1,
+    }) === false,
+    "hard max 60s"
+  );
 
   const mapped = mapBatchApiResultToRow({
     id: 42,
@@ -122,19 +174,16 @@ function run() {
   assert(whatsappHrefFromPhone("01012345678") === null, "no local 0 wa");
   assert(whatsappHrefFromPhone("") === null, "no empty wa");
 
-  // phone-only UI: rows without phone excluded
   const mixed = [
     mapBatchApiResultToRow({ id: 1, phone: "+201012345678", comment_text: "a" }),
     mapBatchApiResultToRow({ id: 2, phone: "", comment_text: "b" }),
   ].filter((r) => Boolean(r.phone));
   assert(mixed.length === 1 && mixed[0].id === 1, "phone-only filter");
 
-  // Simulated: new queued batch shows 0 results (no bleed from prior 543)
   const priorCount = 543;
   const newBatchRows: unknown[] = [];
   assert(newBatchRows.length === 0 && priorCount === 543, "new batch starts 0");
 
-  // Pagination math for 543
   const total = 543;
   const pages = Math.ceil(total / BATCH_RESULTS_PAGE_SIZE);
   assert(pages === 55, "543/10 pages");

@@ -9,6 +9,10 @@ export const MAX_TXT_BYTES = 5 * 1024 * 1024;
 export const BATCH_RESULTS_PAGE_SIZE = 10;
 /** Live poll while batch is queued/running (read-only GETs). */
 export const BATCH_RESULTS_POLL_MS = 3000;
+/** Post-terminal phone_only refresh while enrichment may still finish. */
+export const POST_TERMINAL_RESULTS_POLL_MS = 3000;
+export const POST_TERMINAL_POLL_MAX_MS = 60_000;
+export const POST_TERMINAL_STABLE_POLLS = 3;
 
 const ALLOWED_FACEBOOK_HOSTS = new Set([
   "facebook.com",
@@ -185,6 +189,67 @@ export function isBatchPollActiveStatus(status: string | null | undefined): bool
 
 export function isBatchTerminalStatus(status: string | null | undefined): boolean {
   return TERMINAL_BATCH_STATUSES.has(String(status || "").toLowerCase());
+}
+
+/** Phone enrichment row is still working (GET enrich-phones/status). */
+export function isEnrichmentActiveStatus(
+  status: string | null | undefined
+): boolean {
+  const s = String(status || "").toLowerCase();
+  return s === "queued" || s === "running";
+}
+
+/** Enrichment finished or absent — safe to stop post-terminal polls. */
+export function isEnrichmentSettledStatus(
+  status: string | null | undefined
+): boolean {
+  const s = String(status || "").toLowerCase();
+  return (
+    s === "done" ||
+    s === "failed" ||
+    s === "error" ||
+    s === "idle" ||
+    s === ""
+  );
+}
+
+/**
+ * Whether post-terminal phone_only polling should continue.
+ * Prefer enrichment status; fall back to stable phone_only count.
+ */
+export function shouldContinuePostTerminalPoll(opts: {
+  batchStatus: string | null | undefined;
+  enrichmentStatus: string | null | undefined;
+  enrichmentStatusAvailable: boolean;
+  elapsedMs: number;
+  maxMs?: number;
+  stablePolls: number;
+  resultCount: number;
+  stablePollsNeeded?: number;
+}): boolean {
+  const batch = String(opts.batchStatus || "").toLowerCase();
+  if (batch === "failed") return false;
+  if (!isBatchTerminalStatus(batch)) return false;
+  const maxMs = opts.maxMs ?? POST_TERMINAL_POLL_MAX_MS;
+  if (opts.elapsedMs >= maxMs) return false;
+
+  if (opts.enrichmentStatusAvailable) {
+    return isEnrichmentActiveStatus(opts.enrichmentStatus);
+  }
+
+  const needed = opts.stablePollsNeeded ?? POST_TERMINAL_STABLE_POLLS;
+  if (opts.resultCount > 0 && opts.stablePolls >= needed) return false;
+  return true;
+}
+
+/** Detect queued/running → terminal transition (forced final fetch). */
+export function isActiveToTerminalTransition(
+  prevStatus: string | null | undefined,
+  nextStatus: string | null | undefined
+): boolean {
+  return (
+    isBatchPollActiveStatus(prevStatus) && isBatchTerminalStatus(nextStatus)
+  );
 }
 
 /**
